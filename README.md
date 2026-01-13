@@ -694,15 +694,11 @@ go run scripts/test_ivt.go
 ## Support
 
 ### Documentation
-- **Full Docs**: https://docs.thenexusengine.com
-- **API Reference**: https://docs.thenexusengine.com/api/catalyst
 - **IVT Detection Guide**: [docs/ivt-detection.md](docs/ivt-detection.md)
 - **OpenRTB Spec**: https://www.iab.com/guidelines/real-time-bidding-rtb-project/
 
 ### Community
 - **GitHub Issues**: https://github.com/thenexusengine/tne_springwire/issues
-- **Discord**: https://discord.gg/thenexusengine
-- **Email**: support@thenexusengine.com
 
 ### Related Projects
 - **TNE Engine** - Publisher-facing SDK
