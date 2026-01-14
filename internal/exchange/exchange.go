@@ -754,42 +754,45 @@ func extractBidMultiplier(v interface{}) (float64, bool) {
 		return getter.GetBidMultiplier(), true
 	}
 
-	// Try direct struct field access for storage.Publisher
-	type publisherStruct struct {
-		BidMultiplier float64 `json:"bid_multiplier"`
+	// Direct type assertion for storage.Publisher (avoids expensive JSON round-trip)
+	type publisherWithMultiplier interface {
+		GetBidMultiplier() float64
+	}
+	if p, ok := v.(publisherWithMultiplier); ok {
+		return p.GetBidMultiplier(), true
 	}
 
-	// Use JSON marshal/unmarshal as safe reflection alternative
-	data, err := json.Marshal(v)
-	if err != nil {
-		return 0, false
+	// Try concrete struct with BidMultiplier field via reflection-free approach
+	type hasBidMultiplier struct {
+		BidMultiplier float64
+	}
+	if p, ok := v.(*hasBidMultiplier); ok {
+		return p.BidMultiplier, true
 	}
 
-	var ps publisherStruct
-	if err := json.Unmarshal(data, &ps); err != nil {
-		return 0, false
-	}
-
-	return ps.BidMultiplier, true
+	return 0, false
 }
 
 // extractPublisherID safely extracts PublisherID field from publisher struct
 func extractPublisherID(v interface{}) (string, bool) {
-	type publisherStruct struct {
-		PublisherID string `json:"publisher_id"`
+	// Type assert to interface with GetPublisherID method (avoids expensive JSON round-trip)
+	type publisherIDGetter interface {
+		GetPublisherID() string
+	}
+	if getter, ok := v.(publisherIDGetter); ok {
+		id := getter.GetPublisherID()
+		return id, id != ""
 	}
 
-	data, err := json.Marshal(v)
-	if err != nil {
-		return "", false
+	// Try concrete struct with PublisherID field
+	type hasPublisherID struct {
+		PublisherID string
+	}
+	if p, ok := v.(*hasPublisherID); ok {
+		return p.PublisherID, p.PublisherID != ""
 	}
 
-	var ps publisherStruct
-	if err := json.Unmarshal(data, &ps); err != nil {
-		return "", false
-	}
-
-	return ps.PublisherID, ps.PublisherID != ""
+	return "", false
 }
 
 // RunAuction executes the auction
