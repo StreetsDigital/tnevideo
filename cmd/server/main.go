@@ -143,6 +143,10 @@ func main() {
 	// Create exchange with default registry
 	ex := exchange.New(adapters.DefaultRegistry, config)
 
+	// Wire up metrics for margin tracking
+	ex.SetMetrics(m)
+	log.Info().Msg("Metrics connected to exchange for margin tracking")
+
 	// Initialize dynamic registry if Redis is available
 	var dynamicRegistry *ortb.DynamicRegistry
 	var redisClient *redis.Client

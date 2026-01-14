@@ -19,6 +19,12 @@ import (
 	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
+// MetricsRecorder interface for recording revenue/margin metrics
+type MetricsRecorder interface {
+	RecordMargin(publisher, bidder, mediaType string, originalPrice, adjustedPrice, platformCut float64)
+	RecordFloorAdjustment(publisher string)
+}
+
 // Exchange orchestrates the auction process
 type Exchange struct {
 	registry         *adapters.Registry
@@ -29,6 +35,7 @@ type Exchange struct {
 	config           *Config
 	fpdProcessor     *fpd.Processor
 	eidFilter        *fpd.EIDFilter
+	metrics          MetricsRecorder
 
 	// configMu protects dynamicRegistry, fpdProcessor, eidFilter, and config.FPD
 	// for safe concurrent access during runtime config updates
@@ -236,6 +243,13 @@ func (e *Exchange) SetDynamicRegistry(dr *ortb.DynamicRegistry) {
 	e.configMu.Lock()
 	defer e.configMu.Unlock()
 	e.dynamicRegistry = dr
+}
+
+// SetMetrics sets the metrics recorder for tracking revenue/margins
+func (e *Exchange) SetMetrics(m MetricsRecorder) {
+	e.configMu.Lock()
+	defer e.configMu.Unlock()
+	e.metrics = m
 }
 
 // GetDynamicRegistry returns the dynamic registry
@@ -484,23 +498,30 @@ func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, impIDs map[s
 // buildImpFloorMap creates a map of impression IDs to their floor prices
 // If publisher has a bid_multiplier, floors are MULTIPLIED to ensure platform gets its cut
 // Example: floor=$1, multiplier=1.05 → adjusted_floor=$1.05 (DSPs must bid at least $1.05)
-func buildImpFloorMap(ctx context.Context, req *openrtb.BidRequest) map[string]float64 {
+func (e *Exchange) buildImpFloorMap(ctx context.Context, req *openrtb.BidRequest) map[string]float64 {
 	impFloors := make(map[string]float64, len(req.Imp))
 
 	// Get publisher's bid multiplier
 	var multiplier float64 = 1.0
+	var publisherID string
 	if pub := middleware.PublisherFromContext(ctx); pub != nil {
 		if v, ok := extractBidMultiplier(pub); ok && v >= 1.0 && v <= 10.0 {
 			multiplier = v
 		}
+		// Extract publisher ID for metrics
+		if pid, ok := extractPublisherID(pub); ok {
+			publisherID = pid
+		}
 	}
 
 	// Build floor map with multiplier applied
+	floorsAdjusted := 0
 	for _, imp := range req.Imp {
 		baseFloor := imp.BidFloor
 		if multiplier != 1.0 && baseFloor > 0 {
 			// Multiply floor so DSPs must bid higher to cover platform's cut
 			impFloors[imp.ID] = roundToCents(baseFloor * multiplier)
+			floorsAdjusted++
 
 			logger.Log.Debug().
 				Str("impID", imp.ID).
@@ -511,6 +532,17 @@ func buildImpFloorMap(ctx context.Context, req *openrtb.BidRequest) map[string]f
 		} else {
 			impFloors[imp.ID] = baseFloor
 		}
+	}
+
+	// Record floor adjustments metric
+	if floorsAdjusted > 0 && publisherID != "" {
+		e.configMu.RLock()
+		if e.metrics != nil {
+			for i := 0; i < floorsAdjusted; i++ {
+				e.metrics.RecordFloorAdjustment(publisherID)
+			}
+		}
+		e.configMu.RUnlock()
 	}
 
 	return impFloors
@@ -627,9 +659,9 @@ func (e *Exchange) applyBidMultiplier(ctx context.Context, bidsByImp map[string]
 		return bidsByImp // No publisher configured, no multiplier to apply
 	}
 
-	// Extract bid multiplier from publisher using reflection-safe approach
-	// The publisher is stored as interface{} but should have a BidMultiplier field
+	// Extract bid multiplier and publisher ID from publisher
 	var multiplier float64 = 1.0 // Default: no adjustment
+	var publisherID string
 
 	// Try to extract via struct field access
 	type publisherWithMultiplier struct {
@@ -646,6 +678,11 @@ func (e *Exchange) applyBidMultiplier(ctx context.Context, bidsByImp map[string]
 		if v, ok := extractBidMultiplier(pub); ok {
 			multiplier = v
 		}
+	}
+
+	// Extract publisher ID for metrics
+	if pid, ok := extractPublisherID(pub); ok {
+		publisherID = pid
 	}
 
 	// If multiplier is 1.0 (or 0, meaning default), no adjustment needed
@@ -669,6 +706,16 @@ func (e *Exchange) applyBidMultiplier(ctx context.Context, bidsByImp map[string]
 				adjustedPrice := roundToCents(originalPrice / multiplier)
 				platformCut := originalPrice - adjustedPrice
 
+				// Determine media type from bid
+				mediaType := "banner" // default
+				if bids[i].Bid.BidType == adapters.BidTypeVideo {
+					mediaType = "video"
+				} else if bids[i].Bid.BidType == adapters.BidTypeNative {
+					mediaType = "native"
+				} else if bids[i].Bid.BidType == adapters.BidTypeAudio {
+					mediaType = "audio"
+				}
+
 				// Log the adjustment for transparency (debug level)
 				logger.Log.Debug().
 					Str("impID", impID).
@@ -678,6 +725,15 @@ func (e *Exchange) applyBidMultiplier(ctx context.Context, bidsByImp map[string]
 					Float64("adjusted_price", adjustedPrice).
 					Float64("platform_cut", platformCut).
 					Msg("Applied bid multiplier")
+
+				// Record margin metrics
+				if publisherID != "" {
+					e.configMu.RLock()
+					if e.metrics != nil {
+						e.metrics.RecordMargin(publisherID, bids[i].BidderCode, mediaType, originalPrice, adjustedPrice, platformCut)
+					}
+					e.configMu.RUnlock()
+				}
 
 				bids[i].Bid.Bid.Price = adjustedPrice
 			}
@@ -715,6 +771,25 @@ func extractBidMultiplier(v interface{}) (float64, bool) {
 	}
 
 	return ps.BidMultiplier, true
+}
+
+// extractPublisherID safely extracts PublisherID field from publisher struct
+func extractPublisherID(v interface{}) (string, bool) {
+	type publisherStruct struct {
+		PublisherID string `json:"publisher_id"`
+	}
+
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "", false
+	}
+
+	var ps publisherStruct
+	if err := json.Unmarshal(data, &ps); err != nil {
+		return "", false
+	}
+
+	return ps.PublisherID, ps.PublisherID != ""
 }
 
 // RunAuction executes the auction
@@ -923,7 +998,7 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 	}
 
 	// Build impression floor map for bid validation (with multiplier applied to floors)
-	impFloors := buildImpFloorMap(ctx, req.BidRequest)
+	impFloors := e.buildImpFloorMap(ctx, req.BidRequest)
 
 	// Track seen bid IDs for deduplication
 	seenBidIDs := make(map[string]struct{})

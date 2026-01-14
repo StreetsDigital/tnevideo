@@ -795,6 +795,9 @@ func TestSortBidsByPrice(t *testing.T) {
 }
 
 func TestBuildImpFloorMap(t *testing.T) {
+	// Create a minimal exchange instance
+	ex := &Exchange{}
+
 	req := &openrtb.BidRequest{
 		Imp: []openrtb.Imp{
 			{ID: "imp1", BidFloor: 1.50},
@@ -803,7 +806,8 @@ func TestBuildImpFloorMap(t *testing.T) {
 		},
 	}
 
-	floors := buildImpFloorMap(req)
+	ctx := context.Background()
+	floors := ex.buildImpFloorMap(ctx, req)
 
 	if len(floors) != 3 {
 		t.Errorf("expected 3 floor entries, got %d", len(floors))

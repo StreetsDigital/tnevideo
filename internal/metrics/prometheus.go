@@ -44,6 +44,13 @@ type Metrics struct {
 	ActiveConnections  prometheus.Gauge
 	RateLimitRejected  prometheus.Counter
 	AuthFailures       prometheus.Counter
+
+	// Revenue/Margin metrics
+	RevenueTotal          *prometheus.CounterVec   // Total bid value (before multiplier)
+	PublisherPayoutTotal  *prometheus.CounterVec   // Amount paid to publishers (after multiplier)
+	PlatformMarginTotal   *prometheus.CounterVec   // Platform revenue (difference)
+	MarginPercentage      *prometheus.HistogramVec // Margin % distribution
+	FloorAdjustments      *prometheus.CounterVec   // Floor price adjustments
 }
 
 // NewMetrics creates and registers all Prometheus metrics
@@ -234,6 +241,49 @@ func NewMetrics(namespace string) *Metrics {
 				Help:      "Total authentication failures",
 			},
 		),
+
+		// Revenue/Margin metrics
+		RevenueTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "revenue_total",
+				Help:      "Total bid revenue in currency units (before multiplier adjustment)",
+			},
+			[]string{"publisher", "bidder", "media_type"},
+		),
+		PublisherPayoutTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "publisher_payout_total",
+				Help:      "Total payout to publishers in currency units (after multiplier adjustment)",
+			},
+			[]string{"publisher", "bidder", "media_type"},
+		),
+		PlatformMarginTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "platform_margin_total",
+				Help:      "Total platform margin/revenue in currency units (difference between revenue and payout)",
+			},
+			[]string{"publisher", "bidder", "media_type"},
+		),
+		MarginPercentage: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Name:      "margin_percentage",
+				Help:      "Platform margin percentage distribution",
+				Buckets:   []float64{0, 1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50},
+			},
+			[]string{"publisher"},
+		),
+		FloorAdjustments: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "floor_adjustments_total",
+				Help:      "Number of floor price adjustments applied (count)",
+			},
+			[]string{"publisher"},
+		),
 	}
 
 	// Register all metrics
@@ -259,6 +309,11 @@ func NewMetrics(namespace string) *Metrics {
 		m.ActiveConnections,
 		m.RateLimitRejected,
 		m.AuthFailures,
+		m.RevenueTotal,
+		m.PublisherPayoutTotal,
+		m.PlatformMarginTotal,
+		m.MarginPercentage,
+		m.FloorAdjustments,
 	)
 
 	return m
@@ -370,4 +425,30 @@ func (m *Metrics) IncRateLimitRejected() {
 // Implements middleware.AuthMetrics interface
 func (m *Metrics) IncAuthFailures() {
 	m.AuthFailures.Inc()
+}
+
+// RecordMargin records platform revenue margins from bid multiplier adjustments
+// originalPrice: the actual bid price from DSP
+// adjustedPrice: the price returned to publisher (after dividing by multiplier)
+// platformCut: the difference (your revenue)
+func (m *Metrics) RecordMargin(publisher, bidder, mediaType string, originalPrice, adjustedPrice, platformCut float64) {
+	// Track total revenue (what DSPs actually bid)
+	m.RevenueTotal.WithLabelValues(publisher, bidder, mediaType).Add(originalPrice)
+
+	// Track publisher payout (what they receive)
+	m.PublisherPayoutTotal.WithLabelValues(publisher, bidder, mediaType).Add(adjustedPrice)
+
+	// Track platform margin (your cut)
+	m.PlatformMarginTotal.WithLabelValues(publisher, bidder, mediaType).Add(platformCut)
+
+	// Track margin percentage
+	if originalPrice > 0 {
+		marginPercent := (platformCut / originalPrice) * 100
+		m.MarginPercentage.WithLabelValues(publisher).Observe(marginPercent)
+	}
+}
+
+// RecordFloorAdjustment records when a floor price is adjusted via multiplier
+func (m *Metrics) RecordFloorAdjustment(publisher string) {
+	m.FloorAdjustments.WithLabelValues(publisher).Inc()
 }
