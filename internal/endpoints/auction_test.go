@@ -780,14 +780,6 @@ func (m *mockStaticRegistry) ListBidders() []string {
 	return m.bidders
 }
 
-type mockDynamicRegistry struct {
-	bidders []string
-}
-
-func (m *mockDynamicRegistry) ListBidderCodes() []string {
-	return m.bidders
-}
-
 // Test InfoBiddersHandler
 func TestNewInfoBiddersHandler(t *testing.T) {
 	handler := NewInfoBiddersHandler([]string{"bidder1", "bidder2"})
@@ -798,23 +790,19 @@ func TestNewInfoBiddersHandler(t *testing.T) {
 
 func TestNewDynamicInfoBiddersHandler(t *testing.T) {
 	static := &mockStaticRegistry{bidders: []string{"static1"}}
-	dynamic := &mockDynamicRegistry{bidders: []string{"dynamic1"}}
 
-	handler := NewDynamicInfoBiddersHandler(static, dynamic)
+	handler := NewDynamicInfoBiddersHandler(static)
 	if handler == nil {
 		t.Fatal("expected non-nil handler")
 	}
 	if handler.staticRegistry != static {
 		t.Error("expected static registry to be set")
 	}
-	if handler.dynamicRegistry != dynamic {
-		t.Error("expected dynamic registry to be set")
-	}
 }
 
 func TestInfoBiddersHandler_StaticOnly(t *testing.T) {
 	static := &mockStaticRegistry{bidders: []string{"bidder1", "bidder2"}}
-	handler := NewDynamicInfoBiddersHandler(static, nil)
+	handler := NewDynamicInfoBiddersHandler(static)
 
 	req := httptest.NewRequest("GET", "/info/bidders", nil)
 	w := httptest.NewRecorder()
@@ -835,69 +823,9 @@ func TestInfoBiddersHandler_StaticOnly(t *testing.T) {
 	}
 }
 
-func TestInfoBiddersHandler_DynamicOnly(t *testing.T) {
-	dynamic := &mockDynamicRegistry{bidders: []string{"dynamic1", "dynamic2", "dynamic3"}}
-	handler := NewDynamicInfoBiddersHandler(nil, dynamic)
-
-	req := httptest.NewRequest("GET", "/info/bidders", nil)
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-
-	var bidders []string
-	json.Unmarshal(w.Body.Bytes(), &bidders)
-
-	if len(bidders) != 3 {
-		t.Errorf("expected 3 bidders, got %d", len(bidders))
-	}
-}
-
-func TestInfoBiddersHandler_BothRegistries(t *testing.T) {
-	static := &mockStaticRegistry{bidders: []string{"bidder1", "bidder2"}}
-	dynamic := &mockDynamicRegistry{bidders: []string{"dynamic1", "dynamic2"}}
-	handler := NewDynamicInfoBiddersHandler(static, dynamic)
-
-	req := httptest.NewRequest("GET", "/info/bidders", nil)
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	var bidders []string
-	json.Unmarshal(w.Body.Bytes(), &bidders)
-
-	if len(bidders) != 4 {
-		t.Errorf("expected 4 bidders, got %d", len(bidders))
-	}
-}
-
-func TestInfoBiddersHandler_DeduplicatesBidders(t *testing.T) {
-	// Both registries have the same bidder
-	static := &mockStaticRegistry{bidders: []string{"bidder1", "common"}}
-	dynamic := &mockDynamicRegistry{bidders: []string{"common", "dynamic1"}}
-	handler := NewDynamicInfoBiddersHandler(static, dynamic)
-
-	req := httptest.NewRequest("GET", "/info/bidders", nil)
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	var bidders []string
-	json.Unmarshal(w.Body.Bytes(), &bidders)
-
-	// Should be deduplicated: bidder1, common, dynamic1
-	if len(bidders) != 3 {
-		t.Errorf("expected 3 bidders (deduplicated), got %d: %v", len(bidders), bidders)
-	}
-}
-
 func TestInfoBiddersHandler_EmptyRegistries(t *testing.T) {
 	static := &mockStaticRegistry{bidders: []string{}}
-	dynamic := &mockDynamicRegistry{bidders: []string{}}
-	handler := NewDynamicInfoBiddersHandler(static, dynamic)
+	handler := NewDynamicInfoBiddersHandler(static)
 
 	req := httptest.NewRequest("GET", "/info/bidders", nil)
 	w := httptest.NewRecorder()
@@ -913,7 +841,7 @@ func TestInfoBiddersHandler_EmptyRegistries(t *testing.T) {
 }
 
 func TestInfoBiddersHandler_NilRegistries(t *testing.T) {
-	handler := NewDynamicInfoBiddersHandler(nil, nil)
+	handler := NewDynamicInfoBiddersHandler(nil)
 
 	req := httptest.NewRequest("GET", "/info/bidders", nil)
 	w := httptest.NewRecorder()
@@ -933,7 +861,7 @@ func TestInfoBiddersHandler_NilRegistries(t *testing.T) {
 }
 
 func TestInfoBiddersHandler_ContentType(t *testing.T) {
-	handler := NewDynamicInfoBiddersHandler(nil, nil)
+	handler := NewDynamicInfoBiddersHandler(nil)
 
 	req := httptest.NewRequest("GET", "/info/bidders", nil)
 	w := httptest.NewRecorder()
