@@ -387,39 +387,42 @@ func TestAuctionHandler_DebugMode_WithBearerToken(t *testing.T) {
 
 func TestHasAPIKey(t *testing.T) {
 	tests := []struct {
-		name     string
-		headers  map[string]string
-		expected bool
+		name        string
+		headers     map[string]string
+		publisherID string // Publisher ID to set in context (empty = not set)
+		expected    bool
 	}{
 		{
-			name:     "no auth headers",
+			name:     "no auth headers or context",
 			headers:  map[string]string{},
 			expected: false,
 		},
 		{
-			name:     "X-API-Key present",
-			headers:  map[string]string{"X-API-Key": "test-key"},
+			name:        "publisher ID in context",
+			headers:     map[string]string{},
+			publisherID: "pub-12345678",
+			expected:    true,
+		},
+		{
+			name:     "X-Publisher-ID header valid (8+ chars)",
+			headers:  map[string]string{"X-Publisher-ID": "pub-12345"},
 			expected: true,
 		},
 		{
-			name:     "Bearer token present",
-			headers:  map[string]string{"Authorization": "Bearer test-token"},
-			expected: true,
-		},
-		{
-			name:     "empty X-API-Key",
-			headers:  map[string]string{"X-API-Key": ""},
+			name:     "X-Publisher-ID header too short (<8 chars)",
+			headers:  map[string]string{"X-Publisher-ID": "pub-123"},
 			expected: false,
 		},
 		{
-			name:     "Authorization without Bearer",
-			headers:  map[string]string{"Authorization": "Basic test"},
+			name:     "empty X-Publisher-ID",
+			headers:  map[string]string{"X-Publisher-ID": ""},
 			expected: false,
 		},
 		{
-			name:     "Bearer only (no token)",
-			headers:  map[string]string{"Authorization": "Bearer "},
-			expected: false,
+			name:        "context overrides short header",
+			headers:     map[string]string{"X-Publisher-ID": "short"},
+			publisherID: "pub-from-context",
+			expected:    true,
 		},
 	}
 
@@ -428,6 +431,12 @@ func TestHasAPIKey(t *testing.T) {
 			req := httptest.NewRequest("POST", "/test", nil)
 			for k, v := range tt.headers {
 				req.Header.Set(k, v)
+			}
+
+			// Set publisher ID in context if provided
+			if tt.publisherID != "" {
+				ctx := SetPublisherID(req.Context(), tt.publisherID)
+				req = req.WithContext(ctx)
 			}
 
 			result := hasAPIKey(req)
