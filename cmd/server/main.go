@@ -183,7 +183,6 @@ func main() {
 	log.Info().
 		Int("count", len(bidders)).
 		Strs("bidders", bidders).
-		Bool("dynamic_bidders_enabled", dynamicBiddersEnabled).
 		Msg("Static bidders registered")
 
 	// Create handlers

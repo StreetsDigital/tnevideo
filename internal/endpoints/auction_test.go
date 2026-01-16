@@ -519,8 +519,12 @@ func TestValidateBidRequest_ImpressionMissingID(t *testing.T) {
 	if valErr.Field != "imp[].id" {
 		t.Errorf("expected field 'imp[].id', got '%s'", valErr.Field)
 	}
-	if valErr.Index != 0 {
-		t.Errorf("expected index 0, got %d", valErr.Index)
+	if valErr.Index == nil || *valErr.Index != 0 {
+		if valErr.Index == nil {
+			t.Errorf("expected index 0, got nil")
+		} else {
+			t.Errorf("expected index 0, got %d", *valErr.Index)
+		}
 	}
 }
 
@@ -569,17 +573,22 @@ func TestValidateBidRequest_SecondImpressionInvalid(t *testing.T) {
 	}
 	var valErr *ValidationError
 	_ = errors.As(err, &valErr)
-	if valErr.Index != 1 {
-		t.Errorf("expected index 1, got %d", valErr.Index)
+	if valErr.Index == nil || *valErr.Index != 1 {
+		if valErr.Index == nil {
+			t.Errorf("expected index 1, got nil")
+		} else {
+			t.Errorf("expected index 1, got %d", *valErr.Index)
+		}
 	}
 }
 
 // Test ValidationError
 func TestValidationError_Error_WithIndex(t *testing.T) {
+	idx := 2
 	err := &ValidationError{
 		Field:   "imp[].id",
 		Message: "required",
-		Index:   2,
+		Index:   &idx,
 	}
 	expected := "imp[].id[2]: required"
 	if err.Error() != expected {
@@ -591,9 +600,9 @@ func TestValidationError_Error_WithoutIndex(t *testing.T) {
 	err := &ValidationError{
 		Field:   "id",
 		Message: "required",
-		Index:   -1,
+		Index:   nil, // nil means no index
 	}
-	// When Index is negative, no index should be shown
+	// When Index is nil, no index should be shown
 	result := err.Error()
 	if strings.Contains(result, "[") {
 		t.Errorf("expected no brackets, got '%s'", result)
@@ -601,10 +610,11 @@ func TestValidationError_Error_WithoutIndex(t *testing.T) {
 }
 
 func TestValidationError_Error_ZeroIndex(t *testing.T) {
+	idx := 0
 	err := &ValidationError{
 		Field:   "imp[].id",
 		Message: "required",
-		Index:   0,
+		Index:   &idx,
 	}
 	expected := "imp[].id[0]: required"
 	if err.Error() != expected {

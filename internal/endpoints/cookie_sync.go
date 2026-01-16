@@ -161,7 +161,7 @@ func (h *CookieSyncHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Determine sync type based on filterSettings
 		syncType := h.getSyncTypeForBidder(bidderCode, req.FilterSettings)
-		if syncType == "" {
+		if syncType == usersync.SyncType("") {
 			// Bidder filtered out by filterSettings
 			continue
 		}
@@ -195,7 +195,7 @@ func (h *CookieSyncHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // getSyncTypeForBidder determines the sync type for a bidder based on filterSettings
 // Returns empty string if the bidder should be filtered out
-func (h *CookieSyncHandler) getSyncTypeForBidder(bidderCode string, filterSettings *FilterSettings) string {
+func (h *CookieSyncHandler) getSyncTypeForBidder(bidderCode string, filterSettings *FilterSettings) usersync.SyncType {
 	if filterSettings == nil {
 		// No filter settings - default to redirect
 		return usersync.SyncTypeRedirect
