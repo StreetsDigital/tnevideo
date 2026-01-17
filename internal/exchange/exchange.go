@@ -259,6 +259,14 @@ func (e *Exchange) SetMetrics(m MetricsRecorder) {
 
 // Close shuts down the exchange and flushes pending events
 func (e *Exchange) Close() error {
+	// Close circuit breakers (wait for pending callbacks)
+	e.bidderBreakersMu.RLock()
+	for _, breaker := range e.bidderBreakers {
+		breaker.Close()
+	}
+	e.bidderBreakersMu.RUnlock()
+
+	// Flush event recorder
 	if e.eventRecorder != nil {
 		return e.eventRecorder.Close()
 	}
