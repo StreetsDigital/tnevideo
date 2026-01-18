@@ -35,8 +35,15 @@ func NewValidationError(format string, args ...interface{}) *ValidationError {
 
 // MetricsRecorder interface for recording revenue/margin metrics and circuit breaker metrics
 type MetricsRecorder interface {
+	// Auction and bid metrics
+	RecordAuction(status, mediaType string, duration time.Duration, biddersSelected, biddersExcluded int)
+	RecordBid(bidder, mediaType string, cpm float64)
+	RecordBidderRequest(bidder string, latency time.Duration, hasError, timedOut bool)
+
+	// Revenue/margin metrics
 	RecordMargin(publisher, bidder, mediaType string, originalPrice, adjustedPrice, platformCut float64)
 	RecordFloorAdjustment(publisher string)
+
 	// Circuit breaker metrics
 	SetBidderCircuitState(bidder, state string)
 	RecordBidderCircuitRequest(bidder string)
@@ -1074,6 +1081,12 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 		response.BidderResults[bidderCode] = result
 		response.DebugInfo.BidderLatencies[bidderCode] = result.Latency
 
+		// Record bidder request metrics
+		if e.metrics != nil {
+			hasError := len(result.Errors) > 0
+			e.metrics.RecordBidderRequest(bidderCode, result.Latency, hasError, result.TimedOut)
+		}
+
 		if len(result.Errors) > 0 {
 			errStrs := make([]string, len(result.Errors))
 			for i, err := range result.Errors {
@@ -1128,6 +1141,11 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 			// Skip nil bids
 			if tb == nil || tb.Bid == nil {
 				continue
+			}
+
+			// Record bid received metric
+			if e.metrics != nil {
+				e.metrics.RecordBid(bidderCode, mediaType, tb.Bid.Price)
 			}
 
 			// Validate bid
@@ -1270,6 +1288,21 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 		Int("bids", totalBids).
 		Dur("latency", response.DebugInfo.TotalLatency).
 		Msg("auction completed")
+
+	// Record auction metrics
+	if e.metrics != nil {
+		// Determine auction status
+		auctionStatus := "success"
+		if totalBids == 0 {
+			auctionStatus = "no_bids"
+		}
+
+		// Get media type from first impression (already extracted earlier)
+		// Use the mediaType variable from line 1018
+
+		// Record auction completion
+		e.metrics.RecordAuction(auctionStatus, mediaType, response.DebugInfo.TotalLatency, len(selectedBidders), 0)
+	}
 
 	return response, nil
 }

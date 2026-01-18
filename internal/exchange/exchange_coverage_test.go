@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/fpd"
@@ -956,6 +957,11 @@ func TestApplyBidMultiplier_NilBid(t *testing.T) {
 
 type mockMetricsRecorder struct{}
 
+func (m *mockMetricsRecorder) RecordAuction(status, mediaType string, duration time.Duration, biddersSelected, biddersExcluded int) {
+}
+func (m *mockMetricsRecorder) RecordBid(bidder, mediaType string, cpm float64) {}
+func (m *mockMetricsRecorder) RecordBidderRequest(bidder string, latency time.Duration, hasError, timedOut bool) {
+}
 func (m *mockMetricsRecorder) RecordMargin(publisher, bidder, mediaType string, originalPrice, adjustedPrice, platformCut float64) {
 }
 func (m *mockMetricsRecorder) RecordFloorAdjustment(publisher string)                   {}

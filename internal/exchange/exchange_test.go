@@ -2067,6 +2067,11 @@ func TestExchange_buildImpFloorMap_NoPublisherContext(t *testing.T) {
 // mockMetrics for testing
 type mockMetrics struct{}
 
+func (m *mockMetrics) RecordAuction(status, mediaType string, duration time.Duration, biddersSelected, biddersExcluded int) {
+}
+func (m *mockMetrics) RecordBid(bidder, mediaType string, cpm float64) {}
+func (m *mockMetrics) RecordBidderRequest(bidder string, latency time.Duration, hasError, timedOut bool) {
+}
 func (m *mockMetrics) RecordMargin(publisher, bidder, mediaType string, originalPrice, adjustedPrice, platformCut float64) {
 }
 func (m *mockMetrics) RecordFloorAdjustment(publisher string) {}
