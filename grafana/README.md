@@ -34,8 +34,9 @@ Open http://localhost:3000 in your browser.
 
 **Pre-loaded dashboards:**
 1. **Exchange Overview** - Request rates, latency, errors
-2. **Circuit Breakers** - Bidder health and circuit breaker states
-3. **System Health** - Go runtime metrics (memory, GC, goroutines)
+2. **Business Metrics** - Auctions, bids, fill rate, revenue, CPM, publisher performance
+3. **Circuit Breakers** - Bidder health and circuit breaker states
+4. **System Health** - Go runtime metrics (memory, GC, goroutines)
 
 ## Dashboard Descriptions
 
@@ -62,6 +63,34 @@ Open http://localhost:3000 in your browser.
 - Capacity planning
 - SLA validation
 - Incident detection
+
+### Business Metrics
+
+**Key metrics:**
+- **Auctions (Last Hour)** - Total auction count
+- **Bids Received (Last Hour)** - Total bid count
+- **Fill Rate** - Percentage of auctions with winning bids
+- **Revenue (Last Hour)** - Total bid revenue in USD
+- **Requests per Publisher** - QPS breakdown by publisher
+- **Bids per Bidder** - Bid rate by bidder
+- **CPM Distribution** - P50/P95/P99 CPM values
+- **Fill Rate by Media Type** - Fill rate segmented by media type
+- **Revenue Split** - Publisher payout vs platform margin
+- **Revenue per Publisher** - Publisher revenue comparison
+- **Publisher Performance Table** - Requests, filled, bids, revenue, fill rate
+
+**Thresholds:**
+- ✅ Fill rate > 70% (green)
+- ⚠️ Fill rate 50-70% (yellow)
+- 🔴 Fill rate < 50% (red)
+
+**Use cases:**
+- Revenue monitoring and forecasting
+- Publisher performance tracking
+- Bidder performance comparison
+- Fill rate optimization
+- CPM trend analysis
+- Business metrics for reporting
 
 ### Circuit Breakers
 
