@@ -51,6 +51,14 @@ func NewPublisherStore(db *sql.DB) *PublisherStore {
 	return &PublisherStore{db: db}
 }
 
+// Ping checks if the database connection is alive
+func (s *PublisherStore) Ping(ctx context.Context) error {
+	if s.db == nil {
+		return nil // No database configured, not an error
+	}
+	return s.db.PingContext(ctx)
+}
+
 // GetByPublisherID retrieves a publisher by their publisher_id
 // Returns interface{} for middleware compatibility while maintaining concrete type internally
 func (s *PublisherStore) GetByPublisherID(ctx context.Context, publisherID string) (interface{}, error) {

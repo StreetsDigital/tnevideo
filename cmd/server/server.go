@@ -243,7 +243,7 @@ func (s *Server) initHandlers() {
 	mux.Handle("/openrtb2/auction", privacyProtectedAuction)
 	mux.Handle("/status", statusHandler)
 	mux.Handle("/health", healthHandler())
-	mux.Handle("/health/ready", readyHandler(s.redisClient, s.exchange))
+	mux.Handle("/health/ready", readyHandler(s.redisClient, s.publisher, s.exchange))
 	mux.Handle("/info/bidders", biddersHandler)
 
 	// Cookie sync endpoints
@@ -466,13 +466,32 @@ func healthHandler() http.Handler {
 }
 
 // readyHandler returns a readiness check with dependency verification
-func readyHandler(redisClient *redis.Client, ex *exchange.Exchange) http.Handler {
+func readyHandler(redisClient *redis.Client, publisherStore *storage.PublisherStore, ex *exchange.Exchange) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
 		checks := make(map[string]interface{})
 		allHealthy := true
+
+		// Check database if available
+		if publisherStore != nil {
+			if err := publisherStore.Ping(ctx); err != nil {
+				checks["database"] = map[string]interface{}{
+					"status": "unhealthy",
+					"error":  err.Error(),
+				}
+				allHealthy = false
+			} else {
+				checks["database"] = map[string]interface{}{
+					"status": "healthy",
+				}
+			}
+		} else {
+			checks["database"] = map[string]interface{}{
+				"status": "disabled",
+			}
+		}
 
 		// Check Redis if available
 		if redisClient != nil {
