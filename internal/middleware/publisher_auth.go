@@ -125,10 +125,8 @@ const RedisPublishersHash = "tne_catalyst:publishers" // hash: publisher_id -> a
 // maxRequestBodySize limits request body reads to prevent OOM attacks (1MB)
 const maxRequestBodySize = 1024 * 1024
 
-// publisherContextKey is the context key for storing publisher objects
-type contextKey string
-
-const publisherContextKey contextKey = "publisher"
+// Context key for storing publisher objects
+const publisherContextKey = "publisher"
 
 // NewPublisherAuth creates a new publisher auth middleware
 func NewPublisherAuth(config *PublisherAuthConfig) *PublisherAuth {
@@ -251,18 +249,20 @@ func (p *PublisherAuth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add publisher ID to request context via header
-		r.Header.Set("X-Publisher-ID", publisherID)
+		// Add publisher ID to request context (secure - can't be spoofed by client)
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, publisherIDKey, publisherID)
 
 		// Retrieve and store full publisher object in context for downstream use
 		if publisherID != "" && p.publisherStore != nil {
-			pub, err := p.publisherStore.GetByPublisherID(r.Context(), publisherID)
+			pub, err := p.publisherStore.GetByPublisherID(ctx, publisherID)
 			if err == nil && pub != nil {
 				// Store publisher in context for exchange to access bid_multiplier
-				ctx := context.WithValue(r.Context(), publisherContextKey, pub)
-				r = r.WithContext(ctx)
+				ctx = context.WithValue(ctx, publisherContextKey, pub)
 			}
 		}
+
+		r = r.WithContext(ctx)
 
 		// Restore body for handler
 		r.Body = io.NopCloser(bytes.NewReader(body))
@@ -689,7 +689,21 @@ func PublisherFromContext(ctx context.Context) interface{} {
 	return nil
 }
 
+// PublisherIDFromContext retrieves the publisher ID string from context
+// Returns empty string if not set
+func PublisherIDFromContext(ctx context.Context) string {
+	if id, ok := ctx.Value(publisherIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
 // NewContextWithPublisher creates a new context with the publisher set (for testing)
 func NewContextWithPublisher(ctx context.Context, publisher interface{}) context.Context {
 	return context.WithValue(ctx, publisherContextKey, publisher)
+}
+
+// NewContextWithPublisherID creates a new context with the publisher ID set (for testing)
+func NewContextWithPublisherID(ctx context.Context, publisherID string) context.Context {
+	return context.WithValue(ctx, publisherIDKey, publisherID)
 }

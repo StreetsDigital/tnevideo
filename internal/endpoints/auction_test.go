@@ -14,6 +14,7 @@ import (
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/exchange"
+	"github.com/thenexusengine/tne_springwire/internal/middleware"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
 )
 
@@ -388,40 +389,21 @@ func TestAuctionHandler_DebugMode_WithBearerToken(t *testing.T) {
 func TestHasAPIKey(t *testing.T) {
 	tests := []struct {
 		name        string
-		headers     map[string]string
 		publisherID string // Publisher ID to set in context (empty = not set)
 		expected    bool
 	}{
 		{
-			name:     "no auth headers or context",
-			headers:  map[string]string{},
+			name:     "no publisher in context",
 			expected: false,
 		},
 		{
 			name:        "publisher ID in context",
-			headers:     map[string]string{},
 			publisherID: "pub-12345678",
 			expected:    true,
 		},
 		{
-			name:     "X-Publisher-ID header valid (8+ chars)",
-			headers:  map[string]string{"X-Publisher-ID": "pub-12345"},
-			expected: true,
-		},
-		{
-			name:     "X-Publisher-ID header too short (<8 chars)",
-			headers:  map[string]string{"X-Publisher-ID": "pub-123"},
-			expected: false,
-		},
-		{
-			name:     "empty X-Publisher-ID",
-			headers:  map[string]string{"X-Publisher-ID": ""},
-			expected: false,
-		},
-		{
-			name:        "context overrides short header",
-			headers:     map[string]string{"X-Publisher-ID": "short"},
-			publisherID: "pub-from-context",
+			name:        "short publisher ID still valid (context only)",
+			publisherID: "pub123",
 			expected:    true,
 		},
 	}
@@ -429,13 +411,10 @@ func TestHasAPIKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", "/test", nil)
-			for k, v := range tt.headers {
-				req.Header.Set(k, v)
-			}
 
 			// Set publisher ID in context if provided
 			if tt.publisherID != "" {
-				ctx := SetPublisherID(req.Context(), tt.publisherID)
+				ctx := middleware.NewContextWithPublisherID(req.Context(), tt.publisherID)
 				req = req.WithContext(ctx)
 			}
 

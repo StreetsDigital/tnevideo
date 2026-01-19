@@ -861,9 +861,9 @@ func TestMiddleware_PublisherIDInHeader(t *testing.T) {
 		AllowUnregistered: true,
 	})
 
-	var capturedHeader string
+	var capturedPublisherID string
 	handler := auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedHeader = r.Header.Get("X-Publisher-ID")
+		capturedPublisherID = PublisherIDFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -882,8 +882,8 @@ func TestMiddleware_PublisherIDInHeader(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	if capturedHeader != "pub123" {
-		t.Errorf("Expected X-Publisher-ID header to be 'pub123', got %q", capturedHeader)
+	if capturedPublisherID != "pub123" {
+		t.Errorf("Expected publisher ID from context to be 'pub123', got %q", capturedPublisherID)
 	}
 }
 

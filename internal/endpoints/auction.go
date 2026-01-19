@@ -25,20 +25,11 @@ const maxRequestBodySize = 1024 * 1024
 // P2-1: Enabled by default to prevent information disclosure
 var debugRequiresAuth = os.Getenv("DEBUG_REQUIRES_AUTH") != "false"
 
-// Context key for authenticated publisher ID (set by auth middleware)
-type contextKey string
-
-const publisherIDContextKey contextKey = "publisher_id"
-
-// SetPublisherID sets the authenticated publisher ID in request context
-// This should only be called by auth middleware after validating the API key
-func SetPublisherID(ctx context.Context, publisherID string) context.Context {
-	return context.WithValue(ctx, publisherIDContextKey, publisherID)
-}
-
 // GetPublisherID retrieves the authenticated publisher ID from context
+// This is set by auth/publisher_auth middleware after validation
 func GetPublisherID(ctx context.Context) (string, bool) {
-	publisherID, ok := ctx.Value(publisherIDContextKey).(string)
+	// Use raw string key (same as middleware packages)
+	publisherID, ok := ctx.Value("publisher_id").(string)
 	return publisherID, ok && publisherID != ""
 }
 
@@ -252,25 +243,10 @@ func writeError(w http.ResponseWriter, message string, status int) {
 // hasAPIKey checks if request has valid API key
 // P2-1: Used to gate debug mode access
 func hasAPIKey(r *http.Request) bool {
-	// Check context first (secure - can't be spoofed by client)
+	// Check context (secure - can't be spoofed by client)
+	// Publisher ID is set by auth middleware after validation
 	if publisherID, ok := GetPublisherID(r.Context()); ok && publisherID != "" {
 		return true
-	}
-
-	// Fallback: check if auth middleware set X-Publisher-ID header
-	// SECURITY NOTE: Auth middleware should strip incoming X-Publisher-ID headers
-	// to prevent header injection attacks
-	publisherIDHeader := r.Header.Get("X-Publisher-ID")
-	if publisherIDHeader != "" && len(publisherIDHeader) > 0 {
-		// Additional validation: publisher ID should look like a valid ID
-		// (not just "1" or "test" which could be injected)
-		// Basic check: should be alphanumeric and reasonable length
-		if len(publisherIDHeader) >= 8 {
-			return true
-		}
-		logger.Log.Warn().
-			Str("publisher_id", publisherIDHeader).
-			Msg("Rejecting suspicious X-Publisher-ID header (too short, possible injection attempt)")
 	}
 
 	return false

@@ -15,6 +15,9 @@ import (
 	pbsconfig "github.com/thenexusengine/tne_springwire/internal/config"
 )
 
+// Context key for storing publisher ID (raw string for cross-package compatibility)
+const publisherIDKey = "publisher_id"
+
 // Redis key patterns (must match IDR's api_keys.py)
 const (
 	// #nosec G101 -- Redis key name, not a credential
@@ -169,8 +172,9 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add publisher ID to request context via header (can be used downstream)
-		r.Header.Set("X-Publisher-ID", publisherID)
+		// Add publisher ID to request context (secure - can't be spoofed by client)
+		ctx := context.WithValue(r.Context(), publisherIDKey, publisherID)
+		r = r.WithContext(ctx)
 
 		next.ServeHTTP(w, r)
 	})

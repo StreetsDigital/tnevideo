@@ -80,7 +80,7 @@ func TestAuthMiddlewareValidKey(t *testing.T) {
 
 	var gotPublisherID string
 	handler := auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPublisherID = r.Header.Get("X-Publisher-ID")
+		gotPublisherID = PublisherIDFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -95,7 +95,7 @@ func TestAuthMiddlewareValidKey(t *testing.T) {
 	}
 
 	if gotPublisherID != "pub1" {
-		t.Errorf("expected publisher ID 'pub1', got '%s'", gotPublisherID)
+		t.Errorf("expected publisher ID from context 'pub1', got '%s'", gotPublisherID)
 	}
 }
 

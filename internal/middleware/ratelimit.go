@@ -149,8 +149,8 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Get client identifier (prefer publisher ID from auth, fallback to IP)
-		clientID := r.Header.Get("X-Publisher-ID")
+		// Get client identifier (prefer publisher ID from context, fallback to IP)
+		clientID := PublisherIDFromContext(r.Context())
 		if clientID == "" {
 			clientID = rl.getClientIP(r)
 		}

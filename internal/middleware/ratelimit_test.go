@@ -134,14 +134,16 @@ func TestRateLimiterUsesPublisherID(t *testing.T) {
 	// Exhaust publisher1's limit
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("X-Publisher-ID", "publisher1")
+		ctx := NewContextWithPublisherID(req.Context(), "publisher1")
+		req = req.WithContext(ctx)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 	}
 
 	// publisher1 should be rate limited
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-Publisher-ID", "publisher1")
+	ctx := NewContextWithPublisherID(req.Context(), "publisher1")
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -151,7 +153,8 @@ func TestRateLimiterUsesPublisherID(t *testing.T) {
 
 	// publisher2 should work
 	req = httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-Publisher-ID", "publisher2")
+	ctx = NewContextWithPublisherID(req.Context(), "publisher2")
+	req = req.WithContext(ctx)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
