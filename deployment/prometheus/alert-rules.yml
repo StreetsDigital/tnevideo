@@ -2,7 +2,7 @@
 # These rules define when to send alerts for various failure conditions
 
 groups:
-  - name: catalyst_critical
+  - name: pbs_critical
     interval: 30s
     rules:
       # Service is down
@@ -18,7 +18,7 @@ groups:
 
       # High error rate
       - alert: HighErrorRate
-        expr: rate(catalyst_http_requests_total{status=~"5.."}[5m]) > 0.05
+        expr: rate(pbs_http_requests_total{status=~"5.."}[5m]) > 0.05
         for: 5m
         labels:
           severity: critical
@@ -29,7 +29,7 @@ groups:
 
       # Database connection failures
       - alert: DatabaseConnectionFailure
-        expr: catalyst_database_connection_errors_total > 0
+        expr: pbs_database_connection_errors_total > 0
         for: 1m
         labels:
           severity: critical
@@ -40,7 +40,7 @@ groups:
 
       # Redis connection failures
       - alert: RedisConnectionFailure
-        expr: catalyst_redis_connection_errors_total > 0
+        expr: pbs_redis_connection_errors_total > 0
         for: 1m
         labels:
           severity: critical
@@ -49,12 +49,12 @@ groups:
           summary: "Redis connection failures detected"
           description: "{{ $value }} Redis connection errors in the last minute"
 
-  - name: catalyst_warnings
+  - name: pbs_warnings
     interval: 1m
     rules:
       # High response time
       - alert: HighResponseTime
-        expr: histogram_quantile(0.95, rate(catalyst_http_request_duration_seconds_bucket[5m])) > 0.5
+        expr: histogram_quantile(0.95, rate(pbs_http_request_duration_seconds_bucket[5m])) > 0.5
         for: 5m
         labels:
           severity: warning
@@ -87,7 +87,7 @@ groups:
 
       # Low auction success rate
       - alert: LowAuctionSuccessRate
-        expr: rate(catalyst_auctions_total{result="success"}[10m]) / rate(catalyst_auctions_total[10m]) < 0.9
+        expr: rate(pbs_auctions_total{result="success"}[10m]) / rate(pbs_auctions_total[10m]) < 0.9
         for: 15m
         labels:
           severity: warning
@@ -98,7 +98,7 @@ groups:
 
       # High privacy violation rate
       - alert: HighPrivacyViolationRate
-        expr: rate(catalyst_privacy_violations_total[10m]) > 0.01
+        expr: rate(pbs_privacy_violations_total[10m]) > 0.01
         for: 15m
         labels:
           severity: warning
@@ -107,12 +107,12 @@ groups:
           summary: "High privacy violation rate"
           description: "Privacy violation rate is {{ $value | humanize }} per second (threshold: 0.01/s)"
 
-  - name: catalyst_backups
+  - name: pbs_backups
     interval: 5m
     rules:
       # Backup failure
       - alert: BackupFailure
-        expr: time() - catalyst_last_backup_timestamp_seconds > 90000
+        expr: time() - pbs_last_backup_timestamp_seconds > 90000
         for: 5m
         labels:
           severity: warning
@@ -123,7 +123,7 @@ groups:
 
       # Backup age (critical)
       - alert: BackupTooOld
-        expr: time() - catalyst_last_backup_timestamp_seconds > 172800
+        expr: time() - pbs_last_backup_timestamp_seconds > 172800
         for: 1m
         labels:
           severity: critical
@@ -132,7 +132,7 @@ groups:
           summary: "No backup in 48 hours"
           description: "Last successful backup was {{ $value | humanizeDuration }} ago (threshold: 48 hours)"
 
-  - name: catalyst_infrastructure
+  - name: pbs_infrastructure
     interval: 1m
     rules:
       # Disk space low
@@ -170,7 +170,7 @@ groups:
 
       # Database connection pool exhausted
       - alert: DatabasePoolExhausted
-        expr: catalyst_database_connections_in_use / catalyst_database_connections_max > 0.9
+        expr: pbs_database_connections_in_use / pbs_database_connections_max > 0.9
         for: 5m
         labels:
           severity: warning
@@ -179,12 +179,12 @@ groups:
           summary: "Database connection pool nearly exhausted"
           description: "{{ $value | humanizePercentage }} of connections in use (threshold: 90%)"
 
-  - name: catalyst_business_metrics
+  - name: pbs_business_metrics
     interval: 5m
     rules:
       # Revenue drop
       - alert: RevenueDrop
-        expr: rate(catalyst_revenue_usd_total[1h]) < rate(catalyst_revenue_usd_total[1h] offset 24h) * 0.5
+        expr: rate(pbs_revenue_usd_total[1h]) < rate(pbs_revenue_usd_total[1h] offset 24h) * 0.5
         for: 1h
         labels:
           severity: warning
@@ -195,7 +195,7 @@ groups:
 
       # No auctions
       - alert: NoAuctions
-        expr: rate(catalyst_auctions_total[5m]) == 0
+        expr: rate(pbs_auctions_total[5m]) == 0
         for: 10m
         labels:
           severity: critical
@@ -206,7 +206,7 @@ groups:
 
       # Low bid rate
       - alert: LowBidRate
-        expr: rate(catalyst_bids_received_total[10m]) / rate(catalyst_auctions_total[10m]) < 1
+        expr: rate(pbs_bids_received_total[10m]) / rate(pbs_auctions_total[10m]) < 1
         for: 30m
         labels:
           severity: warning
@@ -215,12 +215,12 @@ groups:
           summary: "Low bid rate"
           description: "Average bids per auction is {{ $value | humanize }} (threshold: <1)"
 
-  - name: catalyst_security
+  - name: pbs_security
     interval: 1m
     rules:
       # High authentication failure rate
       - alert: HighAuthFailureRate
-        expr: rate(catalyst_auth_failures_total[5m]) > 10
+        expr: rate(pbs_auth_failures_total[5m]) > 10
         for: 5m
         labels:
           severity: warning
@@ -231,7 +231,7 @@ groups:
 
       # Possible DDoS attack
       - alert: PossibleDDoS
-        expr: rate(catalyst_http_requests_total[1m]) > 10000
+        expr: rate(pbs_http_requests_total[1m]) > 10000
         for: 2m
         labels:
           severity: critical
@@ -242,7 +242,7 @@ groups:
 
       # Rate limit violations
       - alert: HighRateLimitViolations
-        expr: rate(catalyst_rate_limit_violations_total[5m]) > 100
+        expr: rate(pbs_rate_limit_violations_total[5m]) > 100
         for: 5m
         labels:
           severity: warning
@@ -251,12 +251,12 @@ groups:
           summary: "High rate limit violations"
           description: "{{ $value | humanize }} rate limit violations per second"
 
-  - name: catalyst_data_quality
+  - name: pbs_data_quality
     interval: 5m
     rules:
       # High invalid bid request rate
       - alert: HighInvalidBidRequestRate
-        expr: rate(catalyst_bid_requests_invalid_total[10m]) / rate(catalyst_bid_requests_total[10m]) > 0.1
+        expr: rate(pbs_bid_requests_invalid_total[10m]) / rate(pbs_bid_requests_total[10m]) > 0.1
         for: 15m
         labels:
           severity: warning
@@ -267,7 +267,7 @@ groups:
 
       # Missing geo data
       - alert: MissingGeoData
-        expr: rate(catalyst_requests_missing_geo_total[10m]) / rate(catalyst_bid_requests_total[10m]) > 0.5
+        expr: rate(pbs_requests_missing_geo_total[10m]) / rate(pbs_bid_requests_total[10m]) > 0.5
         for: 15m
         labels:
           severity: warning

@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://go.dev/)
-[![OpenRTB](https://img.shields.io/badge/OpenRTB-2.x-green.svg)](https://www.iab.com/guidelines/real-time-bidding-rtb-project/)
+[![OpenRTB](https://img.shields.io/badge/OpenRTB-2.5-green.svg)](https://www.iab.com/guidelines/real-time-bidding-rtb-project/)
 
 Server-side header bidding auction engine with intelligent demand routing, invalid traffic detection, and privacy compliance. Built for scale and transparency.
 
@@ -21,7 +21,7 @@ Server-side header bidding auction engine with intelligent demand routing, inval
 
 ## Overview
 
-Catalyst is the server-side auction engine that powers The Nexus Engine's transparent ad exchange. It processes OpenRTB 2.x bid requests, orchestrates parallel bidder auctions, and integrates with the Intelligent Demand Router (IDR) for ML-optimized demand selection.
+Catalyst is the server-side auction engine that powers The Nexus Engine's transparent ad exchange. It processes OpenRTB 2.5 bid requests, orchestrates parallel bidder auctions, and integrates with the Intelligent Demand Router (IDR) for ML-optimized demand selection.
 
 ### Architecture
 
@@ -39,7 +39,7 @@ Catalyst is the server-side auction engine that powers The Nexus Engine's transp
 │  └─────┬─────┘  │
 │        │        │
 │  ┌─────▼─────┐  │
-│  │  Auction  │  │ ← OpenRTB 2.x protocol
+│  │  Auction  │  │ ← OpenRTB 2.5 protocol
 │  │   Core    │  │ ← Parallel bidding
 │  └─────┬─────┘  │
 │        │        │
@@ -62,7 +62,7 @@ Catalyst is the server-side auction engine that powers The Nexus Engine's transp
 
 ### Key Features
 
-- **OpenRTB 2.x Compliant** - Industry-standard protocol
+- **OpenRTB 2.5 Compliant** - Industry-standard protocol
 - **Intelligent Demand Routing** - ML-based demand source selection
 - **Invalid Traffic Detection** - Real-time fraud protection
 - **Privacy Compliance** - GDPR, CCPA, and COPPA enforcement
@@ -286,7 +286,7 @@ Production-ready WAF protection with OWASP Core Rule Set and custom OpenRTB rule
 - HTTP protocol anomalies
 
 **Custom OpenRTB Rules:**
-- Validates OpenRTB 2.x request structure
+- Validates OpenRTB 2.5 request structure
 - Enforces required fields (id, imp, site/app)
 - Size limits on arrays (max 100 impressions)
 - Blocked parameter injection attacks

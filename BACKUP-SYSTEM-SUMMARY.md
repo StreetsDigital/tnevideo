@@ -37,10 +37,10 @@ The system had **zero automated backup infrastructure**:
 **Features:**
 ```bash
 # Creates backups in:
-/backups/latest/latest.sql.gz       # Always latest
-/backups/daily/daily_YYYYMMDD.sql.gz
-/backups/weekly/weekly_WW_YYYYMMDD.sql.gz
-/backups/monthly/monthly_YYYYMM.sql.gz
+/backups/latest/latest.backup       # Always latest
+/backups/daily/daily_YYYYMMDD.backup
+/backups/weekly/weekly_WW_YYYYMMDD.backup
+/backups/monthly/monthly_YYYYMM.backup
 
 # Uploads to S3 (if configured):
 s3://<bucket>/catalyst-backups/daily/
@@ -60,10 +60,10 @@ s3://<bucket>/catalyst-backups/latest/
 docker exec -it catalyst-backup /usr/local/bin/restore-postgres.sh
 
 # Restore latest
-FORCE=true /usr/local/bin/restore-postgres.sh /backups/latest/latest.sql.gz
+FORCE=true /usr/local/bin/restore-postgres.sh /backups/latest/latest.backup
 
 # Restore specific date
-FORCE=true /usr/local/bin/restore-postgres.sh /backups/daily/daily_20260119.sql.gz
+FORCE=true /usr/local/bin/restore-postgres.sh /backups/daily/daily_20260119.backup
 ```
 
 #### 3. Docker Backup Container (`Dockerfile.backup`)
@@ -76,8 +76,8 @@ FORCE=true /usr/local/bin/restore-postgres.sh /backups/daily/daily_20260119.sql.
 **Default configuration:**
 - Schedule: Daily at 2 AM UTC
 - Retention: 7 daily, 4 weekly, 3 monthly
-- Compression: gzip level 9 (~90% reduction)
-- Format: PostgreSQL custom format
+- Format: PostgreSQL custom format (binary compressed, ~85% reduction)
+- Restore: Use pg_restore (not psql)
 
 #### 4. Docker Compose Integration
 Updated all deployment files:
@@ -190,13 +190,13 @@ docker exec catalyst-backup /usr/local/bin/backup-postgres.sh
 
 **List available backups:**
 ```bash
-docker exec catalyst-backup find /backups -name "*.sql.gz" -ls
+docker exec catalyst-backup find /backups -name "*.backup" -ls
 ```
 
 **Restore from latest:**
 ```bash
 docker exec catalyst-backup \
-  bash -c "FORCE=true /usr/local/bin/restore-postgres.sh /backups/latest/latest.sql.gz"
+  bash -c "FORCE=true /usr/local/bin/restore-postgres.sh /backups/latest/latest.backup"
 ```
 
 **View backup logs:**
@@ -206,7 +206,7 @@ docker logs catalyst-backup
 
 **Download from S3:**
 ```bash
-aws s3 cp s3://${BACKUP_S3_BUCKET}/catalyst-backups/latest/latest.sql.gz ./
+aws s3 cp s3://${BACKUP_S3_BUCKET}/catalyst-backups/latest/latest.backup ./
 ```
 
 ### Files Created

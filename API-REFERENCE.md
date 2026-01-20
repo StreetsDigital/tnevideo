@@ -257,29 +257,28 @@ Prometheus-formatted metrics for monitoring.
 
 **Response:**
 ```prometheus
-# HELP catalyst_auctions_total Total number of auctions
-# TYPE catalyst_auctions_total counter
-catalyst_auctions_total{result="success"} 12345
+# HELP pbs_auctions_total Total number of auctions
+# TYPE pbs_auctions_total counter
+pbs_auctions_total{result="success"} 12345
 
-# HELP catalyst_bids_received_total Total bids received from bidders
-# TYPE catalyst_bids_received_total counter
-catalyst_bids_received_total 45678
+# HELP pbs_bids_received_total Total bids received from bidders
+# TYPE pbs_bids_received_total counter
+pbs_bids_received_total 45678
 
-# HELP catalyst_http_request_duration_seconds HTTP request latency
-# TYPE catalyst_http_request_duration_seconds histogram
-catalyst_http_request_duration_seconds_bucket{endpoint="/openrtb2/auction",le="0.1"} 8234
-catalyst_http_request_duration_seconds_bucket{endpoint="/openrtb2/auction",le="0.2"} 9876
-catalyst_http_request_duration_seconds_sum{endpoint="/openrtb2/auction"} 1234.56
-catalyst_http_request_duration_seconds_count{endpoint="/openrtb2/auction"} 10000
+# HELP pbs_http_request_duration_seconds HTTP request latency
+# TYPE pbs_http_request_duration_seconds histogram
+pbs_http_request_duration_seconds_bucket{endpoint="/openrtb2/auction",le="0.1"} 8234
+pbs_http_request_duration_seconds_bucket{endpoint="/openrtb2/auction",le="0.2"} 9876
+pbs_http_request_duration_seconds_sum{endpoint="/openrtb2/auction"} 1234.56
+pbs_http_request_duration_seconds_count{endpoint="/openrtb2/auction"} 10000
 ```
 
 **Key Metrics:**
-- `catalyst_auctions_total` - Total auctions processed
-- `catalyst_bids_received_total` - Bids received from bidders
-- `catalyst_revenue_usd_total` - Total revenue in USD
-- `catalyst_http_request_duration_seconds` - Request latency
-- `catalyst_privacy_violations_total` - Privacy compliance violations
-- `catalyst_database_connections_*` - Database pool metrics
+- `pbs_auctions_total` - Total auctions processed
+- `pbs_bids_received_total` - Bids received from bidders
+- `pbs_revenue_usd_total` - Total revenue in USD
+- `pbs_http_request_duration_seconds` - Request latency
+- `pbs_privacy_violations_total` - Privacy compliance violations
 
 ---
 

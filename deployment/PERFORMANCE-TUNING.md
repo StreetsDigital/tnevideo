@@ -13,7 +13,7 @@ DB_CONN_MAX_LIFETIME=600s  # Connection lifetime (default: 10m)
 **Tuning:**
 - High traffic: Increase MAX_OPEN_CONNS to 200
 - Low latency: Increase MAX_IDLE_CONNS to 50
-- Monitor: `catalyst_database_connections_*` metrics
+- Monitor: `pbs_database_connections_*` metrics
 
 #### 2. Redis Configuration
 ```bash
@@ -192,7 +192,7 @@ gzip_types application/json text/plain;
 #### Connection Pool Monitoring
 ```prometheus
 # Check pool utilization
-catalyst_database_connections_in_use / catalyst_database_connections_max
+pbs_database_connections_in_use / pbs_database_connections_max
 
 # Alert if > 90%
 ```
@@ -254,16 +254,16 @@ Content-Type: application/json
 #### Key Metrics
 ```prometheus
 # Response time
-histogram_quantile(0.95, rate(catalyst_http_request_duration_seconds_bucket[5m]))
+histogram_quantile(0.95, rate(pbs_http_request_duration_seconds_bucket[5m]))
 
 # Throughput
-rate(catalyst_http_requests_total[5m])
+rate(pbs_http_requests_total[5m])
 
 # Error rate
-rate(catalyst_http_requests_total{status=~"5.."}[5m]) / rate(catalyst_http_requests_total[5m])
+rate(pbs_http_requests_total{status=~"5.."}[5m]) / rate(pbs_http_requests_total[5m])
 
 # Database latency
-histogram_quantile(0.95, rate(catalyst_database_query_duration_seconds_bucket[5m]))
+histogram_quantile(0.95, rate(pbs_database_query_duration_seconds_bucket[5m]))
 
 # Goroutines
 go_goroutines
@@ -333,7 +333,7 @@ upstream catalyst {
 
 #### High Response Time
 1. Check Grafana dashboard for latency spikes
-2. Identify slow endpoint: `catalyst_http_request_duration_seconds`
+2. Identify slow endpoint: `pbs_http_request_duration_seconds`
 3. Check database query times
 4. Profile CPU/memory for hot spots
 5. Review recent code changes
