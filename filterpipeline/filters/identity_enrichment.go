@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/prebid/prebid-server/v3/filterpipeline"
-	"github.com/prebid/prebid-server/v3/openrtb_ext"
 )
 
 // IdentityEnrichmentFilter adds identity data to requests in the pre-filter stage.

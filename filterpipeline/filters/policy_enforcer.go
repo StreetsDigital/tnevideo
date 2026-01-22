@@ -55,17 +55,17 @@ func (f *PolicyEnforcerFilter) Execute(ctx context.Context, req filterpipeline.P
 	}
 
 	// Check if response exists
-	if req.Response == nil || req.Response.BidResponse == nil {
+	if req.Response == nil {
 		return resp, nil
 	}
 
-	bidResp := req.Response.BidResponse
+	bidResp := req.Response
 	removedBids := 0
 	policyViolations := make([]string, 0)
 
 	// Iterate through seat bids and filter bids based on policies
 	for seatIdx, seatBid := range bidResp.SeatBid {
-		filteredBids := make([]*openrtb2.Bid, 0, len(seatBid.Bid))
+		filteredBids := make([]openrtb2.Bid, 0, len(seatBid.Bid))
 
 		for _, bid := range seatBid.Bid {
 			removed := false

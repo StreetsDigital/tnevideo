@@ -37,6 +37,9 @@ const (
 	FormatParameter          = "f"
 	AnalyticsParameter       = "x"
 	IntegrationTypeParameter = "int"
+	ErrorCodeParameter       = "ec"
+	ErrorMessageParameter    = "em"
+	ClickThroughParameter    = "ct"
 )
 
 const integrationParamMaxLength = 64
@@ -197,6 +200,17 @@ func ParseEventRequest(r *http.Request) (*analytics.EventRequest, []error) {
 
 	event.Bidder = bidderName
 
+	// Read error code (for error events)
+	if event.VType == analytics.Error {
+		event.ErrorCode = r.URL.Query().Get(ErrorCodeParameter)
+		event.ErrorMessage = r.URL.Query().Get(ErrorMessageParameter)
+	}
+
+	// Read click-through URL (for click events)
+	if event.VType == analytics.Click {
+		event.ClickThrough = r.URL.Query().Get(ClickThroughParameter)
+	}
+
 	return event, errs
 }
 
@@ -314,6 +328,24 @@ func readVType(er *analytics.EventRequest, httpRequest *http.Request) error {
 		er.VType = analytics.ThirdQuartile
 	case string(analytics.Complete):
 		er.VType = analytics.Complete
+	case string(analytics.Click):
+		er.VType = analytics.Click
+	case string(analytics.Error):
+		er.VType = analytics.Error
+	case string(analytics.Pause):
+		er.VType = analytics.Pause
+	case string(analytics.Resume):
+		er.VType = analytics.Resume
+	case string(analytics.Mute):
+		er.VType = analytics.Mute
+	case string(analytics.Unmute):
+		er.VType = analytics.Unmute
+	case string(analytics.Fullscreen):
+		er.VType = analytics.Fullscreen
+	case string(analytics.ExitFullscreen):
+		er.VType = analytics.ExitFullscreen
+	case string(analytics.Skip):
+		er.VType = analytics.Skip
 	default:
 		return &errortypes.BadInput{Message: fmt.Sprintf("unknown vtype: '%s'", vtype)}
 	}

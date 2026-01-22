@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prebid/openrtb/v20/openrtb2"
 	"github.com/prebid/prebid-server/v3/logger"
 	"github.com/prebid/prebid-server/v3/openrtb_ext"
 )
@@ -187,7 +188,7 @@ func (p *Pipeline) ExecutePreFilters(ctx context.Context, req *openrtb_ext.Reque
 }
 
 // ExecutePostFilters runs all enabled post-filters on the response.
-func (p *Pipeline) ExecutePostFilters(ctx context.Context, req *openrtb_ext.RequestWrapper, resp *openrtb_ext.BidResponseWrapper, accountID, endpoint string) (*openrtb_ext.BidResponseWrapper, error) {
+func (p *Pipeline) ExecutePostFilters(ctx context.Context, req *openrtb_ext.RequestWrapper, resp *openrtb2.BidResponse, accountID, endpoint string) (*openrtb2.BidResponse, error) {
 	if !p.config.Enabled {
 		return resp, nil
 	}

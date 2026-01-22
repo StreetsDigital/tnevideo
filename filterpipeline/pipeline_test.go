@@ -396,15 +396,13 @@ func TestExecutePostFilters(t *testing.T) {
 				},
 			}
 
-			resp := &openrtb_ext.BidResponseWrapper{
-				BidResponse: &openrtb2.BidResponse{
-					ID: "test-response",
-					SeatBid: []openrtb2.SeatBid{
-						{
-							Seat: "bidder1",
-							Bid: []*openrtb2.Bid{
-								{ID: "bid1", Price: 1.5},
-							},
+			resp := &openrtb2.BidResponse{
+				ID: "test-response",
+				SeatBid: []openrtb2.SeatBid{
+					{
+						Seat: "bidder1",
+						Bid: []openrtb2.Bid{
+							{ID: "bid1", Price: 1.5},
 						},
 					},
 				},

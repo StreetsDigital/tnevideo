@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/prebid/openrtb/v20/openrtb2"
 	"github.com/prebid/prebid-server/v3/openrtb_ext"
 )
 
@@ -48,7 +49,7 @@ type PostFilterRequest struct {
 	// Request is the original bid request
 	Request *openrtb_ext.RequestWrapper
 	// Response is the bid response to be filtered
-	Response *openrtb_ext.BidResponseWrapper
+	Response *openrtb2.BidResponse
 	// Context provides filter execution context
 	Context FilterContext
 }
@@ -56,7 +57,7 @@ type PostFilterRequest struct {
 // PostFilterResponse represents the response from a post-filter.
 type PostFilterResponse struct {
 	// Response is the potentially modified response
-	Response *openrtb_ext.BidResponseWrapper
+	Response *openrtb2.BidResponse
 	// Reject indicates if the response should be rejected
 	Reject bool
 	// RejectReason provides the reason for rejection

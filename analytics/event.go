@@ -30,6 +30,15 @@ const (
 	MidPoint      VastType = "midPoint"
 	ThirdQuartile VastType = "thirdQuartile"
 	Complete      VastType = "complete"
+	Click         VastType = "click"
+	Error         VastType = "error"
+	Pause         VastType = "pause"
+	Resume        VastType = "resume"
+	Mute          VastType = "mute"
+	Unmute        VastType = "unmute"
+	Fullscreen    VastType = "fullscreen"
+	ExitFullscreen VastType = "exitFullscreen"
+	Skip          VastType = "skip"
 )
 
 // Analytics indicates if the notification event should be handled or not
@@ -50,4 +59,7 @@ type EventRequest struct {
 	Timestamp   int64          `json:"timestamp,omitempty"`
 	Integration string         `json:"integration,omitempty"`
 	VType       VastType       `json:"vtype,omitempty"`
+	ErrorCode   string         `json:"error_code,omitempty"`   // VAST error code (e.g., "400", "900")
+	ErrorMessage string        `json:"error_message,omitempty"` // Human-readable error description
+	ClickThrough string        `json:"click_through,omitempty"` // Click-through URL
 }
