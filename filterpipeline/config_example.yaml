@@ -1,0 +1,125 @@
+# Filter Pipeline Configuration Example
+# This file shows how the filter pipeline can be configured at different levels
+
+# Global pipeline configuration
+filter_pipeline:
+  # Enable or disable the entire pipeline
+  enabled: true
+
+  # Maximum duration for pre-filter execution (milliseconds)
+  max_pre_filter_duration: 150
+
+  # Maximum duration for post-filter execution (milliseconds)
+  max_post_filter_duration: 150
+
+  # Continue processing even if a filter encounters an error
+  continue_on_error: true
+
+  # Enable parallel execution of filters with the same priority
+  parallel_execution: false
+
+# Pre-filter configurations
+pre_filters:
+
+  # Request validation filter
+  request_validator:
+    enabled: true
+    priority: 5
+
+    # Require user object in requests
+    require_user: false
+
+    # Require device object in requests
+    require_device: false
+
+    # Minimum number of impressions required
+    min_impressions: 1
+
+  # Identity enrichment filter
+  identity_enrichment:
+    enabled: true
+    priority: 10
+
+# Post-filter configurations
+post_filters:
+
+  # Policy enforcement filter
+  policy_enforcer:
+    enabled: true
+    priority: 10
+
+    # Maximum allowed bid price
+    max_bid_price: 100.0
+
+    # Minimum allowed bid price
+    min_bid_price: 0.01
+
+    # List of allowed bidders (empty = all bidders allowed)
+    allowed_bidders: []
+
+# Account-specific overrides
+accounts:
+  # Account: premium-publisher-123
+  premium-publisher-123:
+    filter_pipeline:
+      enabled: true
+
+      pre_filters:
+        request_validator:
+          enabled: true
+          require_user: true
+          require_device: true
+          min_impressions: 2
+
+        identity_enrichment:
+          enabled: true
+
+      post_filters:
+        policy_enforcer:
+          enabled: true
+          max_bid_price: 50.0
+          min_bid_price: 0.50
+          allowed_bidders:
+            - bidder1
+            - bidder2
+            - bidder3
+
+  # Account: test-publisher-456
+  test-publisher-456:
+    filter_pipeline:
+      enabled: true
+
+      pre_filters:
+        request_validator:
+          enabled: false
+
+        identity_enrichment:
+          enabled: true
+
+      post_filters:
+        policy_enforcer:
+          enabled: false
+
+  # Account: strict-publisher-789
+  strict-publisher-789:
+    filter_pipeline:
+      enabled: true
+      continue_on_error: false  # Fail fast mode
+
+      pre_filters:
+        request_validator:
+          enabled: true
+          require_user: true
+          require_device: true
+          min_impressions: 3
+
+        identity_enrichment:
+          enabled: true
+
+      post_filters:
+        policy_enforcer:
+          enabled: true
+          max_bid_price: 25.0
+          min_bid_price: 1.0
+          allowed_bidders:
+            - premium-bidder-only
