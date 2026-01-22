@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/alicebob/miniredis/v2 v2.35.0
+	github.com/alicebob/miniredis/v2 v2.36.0
 	github.com/lib/pq v1.10.9
 	github.com/prometheus/client_golang v1.21.1
 	github.com/redis/go-redis/v9 v9.17.2
