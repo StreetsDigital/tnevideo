@@ -391,8 +391,8 @@ func (d *IVTDetector) checkRefererWithConfig(r *http.Request, domain string, res
 	}
 
 	// Validate referer matches domain
-	if domain != "" && !strings.Contains(referer, domain) {
-		// Extract domain from referer
+	if domain != "" {
+		// Extract domain from referer for proper host comparison
 		refererDomain := extractDomain(referer)
 		if refererDomain != domain {
 			result.Signals = append(result.Signals, IVTSignal{

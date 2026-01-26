@@ -3,7 +3,9 @@ package endpoints
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -281,18 +283,24 @@ func (h *VideoEventHandler) handleSpecificEvent(w http.ResponseWriter, r *http.R
 
 // getClientIP extracts the client IP from the request
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header
+	// Try X-Forwarded-For first (for proxied requests)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
+		// X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+		// Take the first (leftmost) IP which is the original client
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
 	}
 
-	// Check X-Real-IP header
+	// Try X-Real-IP
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return xri
 	}
 
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+	// Fall back to RemoteAddr (strip port if present)
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr) //nolint:errcheck // RemoteAddr may not have port
+	return ip
 }
 
 // RegisterVideoEventRoutes registers video event routes with the provided mux

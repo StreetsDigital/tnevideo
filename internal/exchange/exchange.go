@@ -1314,12 +1314,13 @@ func (e *Exchange) callBiddersWithFPD(ctx context.Context, req *openrtb.BidReque
 	var results sync.Map // P0-1: Thread-safe map for concurrent writes
 	var wg sync.WaitGroup
 
-	// P0-4: Create semaphore to limit concurrent bidder calls
+	// P0-4: Create semaphore to limit concurrent bidder calls (0 = unlimited)
 	maxConcurrent := e.config.MaxConcurrentBidders
-	if maxConcurrent <= 0 {
-		maxConcurrent = 10 // Default limit
+	var sem chan struct{}
+	if maxConcurrent > 0 {
+		sem = make(chan struct{}, maxConcurrent)
 	}
-	sem := make(chan struct{}, maxConcurrent)
+	// If maxConcurrent <= 0, sem remains nil (unlimited concurrency)
 
 	for _, bidderCode := range bidders {
 		// Check circuit breaker before calling bidder
@@ -1352,18 +1353,20 @@ func (e *Exchange) callBiddersWithFPD(ctx context.Context, req *openrtb.BidReque
 			go func(code string, awi adapters.AdapterWithInfo) {
 				defer wg.Done()
 
-				// P0-4: Acquire semaphore (blocks if at capacity)
-				select {
-				case sem <- struct{}{}:
-					defer func() { <-sem }() // Release on completion
-				case <-ctx.Done():
-					// Context canceled while waiting for semaphore
-					results.Store(code, &BidderResult{
-						BidderCode: code,
-						Errors:     []error{ctx.Err()},
-						TimedOut:   true,
-					})
-					return
+				// P0-4: Acquire semaphore if concurrency limit is configured
+				if sem != nil {
+					select {
+					case sem <- struct{}{}:
+						defer func() { <-sem }() // Release on completion
+					case <-ctx.Done():
+						// Context canceled while waiting for semaphore
+						results.Store(code, &BidderResult{
+							BidderCode: code,
+							Errors:     []error{ctx.Err()},
+							TimedOut:   true,
+						})
+						return
+					}
 				}
 
 				// Check geo-aware consent filtering (GDPR, CCPA, etc.)
