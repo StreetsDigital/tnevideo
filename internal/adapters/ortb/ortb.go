@@ -415,24 +415,25 @@ func (a *GenericAdapter) buildHeaders(config *BidderConfig) http.Header {
 	}
 
 	// Custom headers with validation to prevent header injection attacks
-	// SECURITY: Whitelist allowed headers and validate for dangerous characters (CVE-2026-XXXX)
+	// SECURITY: Allow standard headers and X- prefixed custom headers (CVE-2026-XXXX)
 	allowedHeaders := map[string]bool{
-		"X-OpenRTB-Version":  true,
+		"X-OpenRTB-Version":   true,
 		"X-Device-User-Agent": true,
-		"X-Device-IP":        true,
-		"X-Forwarded-For":    true,
-		"X-Real-IP":          true,
-		"User-Agent":         true,
-		"Referer":            true,
-		"Accept":             true,
-		"Accept-Language":    true,
-		"Accept-Encoding":    true,
+		"X-Device-IP":         true,
+		"X-Forwarded-For":     true,
+		"X-Real-IP":           true,
+		"User-Agent":          true,
+		"Referer":             true,
+		"Accept":              true,
+		"Accept-Language":     true,
+		"Accept-Encoding":     true,
 	}
 
 	for k, v := range config.Endpoint.CustomHeaders {
-		// Validate header name is in whitelist
-		if !allowedHeaders[k] {
-			// Skip dangerous headers
+		// Allow whitelisted headers or custom headers starting with X-
+		isAllowed := allowedHeaders[k] || strings.HasPrefix(k, "X-")
+		if !isAllowed {
+			// Skip potentially dangerous headers (e.g., Host, Cookie, Authorization not in whitelist)
 			continue
 		}
 		// Validate no newlines or carriage returns (header injection protection)

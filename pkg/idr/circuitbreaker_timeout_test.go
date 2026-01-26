@@ -2,6 +2,7 @@ package idr
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -94,14 +95,14 @@ func TestCircuitBreakerCallbackNonBlocking(t *testing.T) {
 
 // TestCircuitBreakerCallbackPanicRecovery verifies panic recovery in callbacks
 func TestCircuitBreakerCallbackPanicRecovery(t *testing.T) {
-	var panicOccurred bool
+	var panicOccurred atomic.Bool
 
 	config := &CircuitBreakerConfig{
 		FailureThreshold: 2,
 		SuccessThreshold: 2,
 		Timeout:          1 * time.Second,
 		OnStateChange: func(from, to string) {
-			panicOccurred = true
+			panicOccurred.Store(true)
 			panic("test panic in callback")
 		},
 	}
@@ -114,7 +115,7 @@ func TestCircuitBreakerCallbackPanicRecovery(t *testing.T) {
 	// Wait for callback goroutine to execute and panic
 	time.Sleep(100 * time.Millisecond)
 
-	if !panicOccurred {
+	if !panicOccurred.Load() {
 		t.Error("Expected callback to be called and panic")
 	}
 

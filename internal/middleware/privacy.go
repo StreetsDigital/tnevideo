@@ -167,13 +167,26 @@ func (m *PrivacyMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read and parse the request body
-	body, err := io.ReadAll(r.Body)
+	// Enforce body size limit (1MB) to prevent DoS attacks
+	const maxBodySize = 1024 * 1024 // 1MB
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	// Read and parse the request body with size limit
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize+1))
 	if err != nil {
 		m.next.ServeHTTP(w, r)
 		return
 	}
 	r.Body.Close()
+
+	// Check if body exceeded limit (LimitReader allows reading up to maxBodySize+1)
+	if len(body) > maxBodySize {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
 
 	var bidRequest openrtb.BidRequest
 	if err := json.Unmarshal(body, &bidRequest); err != nil {

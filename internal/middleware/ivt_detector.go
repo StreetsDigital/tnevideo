@@ -440,7 +440,13 @@ func (d *IVTDetector) checkRefererWithConfig(r *http.Request, domain string, res
 	if domain != "" {
 		// Extract domain from referer for proper host comparison
 		refererDomain := extractDomain(referer)
-		if refererDomain != domain {
+
+		// Allow exact match or subdomain match
+		// e.g., "example.com" matches "example.com", "www.example.com" matches "example.com"
+		isValid := refererDomain == domain ||
+			strings.HasSuffix(refererDomain, "."+domain)
+
+		if !isValid {
 			result.Signals = append(result.Signals, IVTSignal{
 				Type:        "invalid_referer",
 				Severity:    "high",
