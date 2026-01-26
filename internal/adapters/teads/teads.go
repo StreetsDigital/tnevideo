@@ -3,9 +3,8 @@
 package teads
 
 import (
-	"fmt"
-
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const (
@@ -44,6 +43,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter(bidderCode, New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register %s adapter: %v", bidderCode, err))
+		logger.Log.Error().Err(err).Str("adapter", bidderCode).Msg("failed to register adapter")
 	}
 }

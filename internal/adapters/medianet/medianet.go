@@ -3,11 +3,11 @@ package medianet
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://prebid.media.net/rtb/prebid"
@@ -60,6 +60,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("medianet", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register medianet adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "medianet").Msg("failed to register adapter")
 	}
 }

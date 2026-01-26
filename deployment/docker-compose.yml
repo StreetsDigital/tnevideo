@@ -47,7 +47,8 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-catalyst}
       POSTGRES_USER: ${DB_USER:-catalyst}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      # SECURITY: Require DB_PASSWORD to be explicitly set (no default)
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Error: DB_PASSWORD environment variable is required. Set a strong password (min 16 characters).}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -77,12 +78,20 @@ services:
     image: redis:7-alpine
     container_name: catalyst-redis
     restart: unless-stopped
+    # SECURITY: Require REDIS_PASSWORD to be explicitly set (no default)
+    # Use ${REDIS_PASSWORD:?...} syntax to enforce password requirement
     command: >
+      sh -c '
+      if [ -z "${REDIS_PASSWORD}" ]; then
+        echo "Error: REDIS_PASSWORD environment variable is required. Set a strong password (min 16 characters)." >&2;
+        exit 1;
+      fi;
       redis-server
       --appendonly yes
       --maxmemory 1024mb
       --maxmemory-policy allkeys-lru
-      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+      --requirepass "${REDIS_PASSWORD}"
+      '
     volumes:
       - redis-data:/data
     networks:
@@ -90,7 +99,7 @@ services:
     healthcheck:
       test: >
         sh -c 'redis-cli
-        ${REDIS_PASSWORD:+-a ${REDIS_PASSWORD}}
+        -a "${REDIS_PASSWORD}"
         ping | grep -q PONG'
       interval: 10s
       timeout: 5s
@@ -154,7 +163,8 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${DB_NAME:-catalyst}
       POSTGRES_USER: ${DB_USER:-catalyst}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      # SECURITY: Require DB_PASSWORD (enforced by postgres service check above)
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Error: DB_PASSWORD environment variable is required}
       BACKUP_CRON: ${BACKUP_CRON:-0 2 * * *}  # Daily at 2 AM
       RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
       RETENTION_WEEKS: ${BACKUP_RETENTION_WEEKS:-4}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sort"
 	"time"
 )
 
@@ -191,30 +192,78 @@ func (c *Cookie) ToHTTPCookie(domain string) (*http.Cookie, error) {
 }
 
 // trimToFit removes oldest UIDs to fit within cookie size limit
+// Optimized: Uses binary search approach instead of O(n²) marshaling loop
 func (c *Cookie) trimToFit() {
-	// Simple approach: remove UIDs with earliest expiry until we fit
-	for len(c.UIDs) > 0 {
-		data, err := json.Marshal(c)
-		if err != nil {
-			break // Can't check size if marshal fails
-		}
-		encoded := base64.URLEncoding.EncodeToString(data)
-		if len(encoded) <= MaxCookieSize {
-			break
-		}
+	if len(c.UIDs) == 0 {
+		return
+	}
 
-		// Find and remove oldest
-		var oldestBidder string
-		var oldestTime time.Time
-		for bidder, uid := range c.UIDs {
-			if oldestBidder == "" || uid.Expires.Before(oldestTime) {
-				oldestBidder = bidder
-				oldestTime = uid.Expires
-			}
+	// Quick check: marshal once to see if we need to trim at all
+	data, err := json.Marshal(c)
+	if err != nil {
+		return // Can't check size if marshal fails
+	}
+	encoded := base64.URLEncoding.EncodeToString(data)
+	if len(encoded) <= MaxCookieSize {
+		return // Already fits
+	}
+
+	// Build sorted list of UIDs by expiry time (oldest first)
+	type uidEntry struct {
+		bidder  string
+		expires time.Time
+	}
+	
+	uidList := make([]uidEntry, 0, len(c.UIDs))
+	for bidder, uid := range c.UIDs {
+		uidList = append(uidList, uidEntry{bidder: bidder, expires: uid.Expires})
+	}
+
+	// Sort by expiry time (oldest first)
+	sort.Slice(uidList, func(i, j int) bool {
+		return uidList[i].expires.Before(uidList[j].expires)
+	})
+
+	// Binary search: find minimum number of UIDs to remove
+	// This reduces O(n²) to O(n log n) by avoiding repeated marshaling
+	left, right := 0, len(uidList)
+	
+	for left < right {
+		mid := (left + right) / 2
+		
+		// Try removing first 'mid' UIDs (oldest)
+		testUIDs := make(map[string]UID, len(c.UIDs)-mid)
+		for i := mid; i < len(uidList); i++ {
+			testUIDs[uidList[i].bidder] = c.UIDs[uidList[i].bidder]
 		}
-		if oldestBidder != "" {
-			delete(c.UIDs, oldestBidder)
+		
+		// Check if this fits
+		testCookie := &Cookie{
+			UIDs:    testUIDs,
+			OptOut:  c.OptOut,
+			Created: c.Created,
 		}
+		
+		testData, err := json.Marshal(testCookie)
+		if err != nil {
+			// If marshal fails, remove more
+			left = mid + 1
+			continue
+		}
+		
+		testEncoded := base64.URLEncoding.EncodeToString(testData)
+		if len(testEncoded) <= MaxCookieSize {
+			// Fits! Try removing fewer UIDs
+			right = mid
+		} else {
+			// Still too big, need to remove more
+			left = mid + 1
+		}
+	}
+	
+	// Remove the minimum required UIDs
+	for i := 0; i < left && i < len(uidList); i++ {
+		delete(c.UIDs, uidList[i].bidder)
 	}
 }
 

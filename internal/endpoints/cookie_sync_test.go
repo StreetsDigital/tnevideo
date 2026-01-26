@@ -310,7 +310,7 @@ func TestCookieSyncHandler_GDPR(t *testing.T) {
 	reqBody := CookieSyncRequest{
 		Bidders:     []string{"appnexus"},
 		GDPR:        1,
-		GDPRConsent: "consent-string",
+		GDPRConsent: "CPXxRfAPXxRfAAfKABENB-CgAAAAAAAAAAYgAAAAAAAA",
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -582,4 +582,92 @@ func createTestHandler() *CookieSyncHandler {
 		},
 	}
 	return NewCookieSyncHandler(config)
+}
+
+// GDPR FIX: Tests for consent validation
+
+func TestCookieSyncHandler_GDPR_NoConsent(t *testing.T) {
+	// When GDPR=1 but no consent string, should return empty bidder status
+	handler := createTestHandler()
+
+	reqBody := CookieSyncRequest{
+		Bidders: []string{"appnexus"},
+		GDPR:    1,
+		// No GDPRConsent
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/cookie_sync", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp CookieSyncResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	// Should return empty bidder status when GDPR consent is missing
+	if len(resp.BidderStatus) != 0 {
+		t.Errorf("expected no bidder status when GDPR consent missing, got %d", len(resp.BidderStatus))
+	}
+}
+
+func TestCookieSyncHandler_GDPR_InvalidConsent(t *testing.T) {
+	// When GDPR=1 but invalid (too short) consent string, should return empty bidder status
+	handler := createTestHandler()
+
+	reqBody := CookieSyncRequest{
+		Bidders:     []string{"appnexus"},
+		GDPR:        1,
+		GDPRConsent: "short", // Too short to be valid
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/cookie_sync", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp CookieSyncResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	// Should return empty bidder status when GDPR consent is invalid
+	if len(resp.BidderStatus) != 0 {
+		t.Errorf("expected no bidder status when GDPR consent invalid, got %d", len(resp.BidderStatus))
+	}
+}
+
+func TestCookieSyncHandler_NoGDPR_Works(t *testing.T) {
+	// When GDPR=0, should return bidder status normally
+	handler := createTestHandler()
+
+	reqBody := CookieSyncRequest{
+		Bidders: []string{"appnexus"},
+		GDPR:    0, // GDPR does not apply
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/cookie_sync", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp CookieSyncResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	// Should return bidder status when GDPR doesn't apply
+	if len(resp.BidderStatus) == 0 {
+		t.Error("expected bidder status when GDPR=0")
+	}
 }

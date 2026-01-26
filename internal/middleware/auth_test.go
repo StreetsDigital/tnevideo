@@ -230,8 +230,9 @@ func TestDefaultAuthConfig(t *testing.T) {
 		t.Fatal("Expected config to be created")
 	}
 
-	if config.Enabled {
-		t.Error("Expected auth to be disabled by default when AUTH_ENABLED not set")
+	// SECURITY: Auth should be ENABLED by default (secure by default)
+	if !config.Enabled {
+		t.Error("Expected auth to be ENABLED by default when AUTH_ENABLED not set (secure by default)")
 	}
 
 	if config.HeaderName != "X-API-Key" {
@@ -241,7 +242,8 @@ func TestDefaultAuthConfig(t *testing.T) {
 	// Verify bypass paths - note: /openrtb2/auction is NOT in default list
 	// It's conditionally added at runtime in cmd/server/main.go based on
 	// whether PublisherAuth is enabled (see commit d61640d)
-	expectedBypass := []string{"/health", "/status", "/metrics", "/info/bidders", "/cookie_sync", "/setuid", "/optout", "/admin/dashboard", "/admin/metrics"}
+	// SECURITY: /metrics and /admin/* endpoints removed from bypass (CVE-2026-XXXX)
+	expectedBypass := []string{"/health", "/status", "/info/bidders", "/cookie_sync", "/setuid", "/optout"}
 	if len(config.BypassPaths) != len(expectedBypass) {
 		t.Errorf("Expected %d bypass paths, got %d", len(expectedBypass), len(config.BypassPaths))
 	}
@@ -255,6 +257,73 @@ func TestDefaultAuthConfig_Enabled(t *testing.T) {
 
 	if !config.Enabled {
 		t.Error("Expected auth to be enabled when AUTH_ENABLED=true")
+	}
+}
+
+func TestDefaultAuthConfig_ExplicitlyDisabled(t *testing.T) {
+	os.Setenv("AUTH_ENABLED", "false")
+	defer os.Unsetenv("AUTH_ENABLED")
+
+	config := DefaultAuthConfig()
+
+	if config.Enabled {
+		t.Error("Expected auth to be disabled when AUTH_ENABLED=false")
+	}
+}
+
+func TestDefaultAuthConfig_SecureByDefault(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		setEnv   bool
+		expected bool
+	}{
+		{
+			name:     "not set - should be enabled (secure by default)",
+			setEnv:   false,
+			expected: true,
+		},
+		{
+			name:     "explicitly true - should be enabled",
+			envValue: "true",
+			setEnv:   true,
+			expected: true,
+		},
+		{
+			name:     "explicitly false - should be disabled",
+			envValue: "false",
+			setEnv:   true,
+			expected: false,
+		},
+		{
+			name:     "invalid value - should be enabled (secure by default)",
+			envValue: "invalid",
+			setEnv:   true,
+			expected: true,
+		},
+		{
+			name:     "empty string - should be enabled (secure by default)",
+			envValue: "",
+			setEnv:   true,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnv {
+				os.Setenv("AUTH_ENABLED", tt.envValue)
+			} else {
+				os.Unsetenv("AUTH_ENABLED")
+			}
+			defer os.Unsetenv("AUTH_ENABLED")
+
+			config := DefaultAuthConfig()
+
+			if config.Enabled != tt.expected {
+				t.Errorf("Expected Enabled=%v, got %v", tt.expected, config.Enabled)
+			}
+		})
 	}
 }
 

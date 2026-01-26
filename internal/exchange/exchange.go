@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -487,8 +488,113 @@ func (e *BidValidationError) Error() string {
 	return fmt.Sprintf("invalid bid from %s (bid=%s, imp=%s): %s", e.BidderCode, e.BidID, e.ImpID, e.Reason)
 }
 
+// validateURL validates that a URL string is properly formatted and uses HTTPS
+func validateURL(urlStr string, requireHTTPS bool) error {
+	if urlStr == "" {
+		return fmt.Errorf("empty URL")
+	}
+
+	// Parse URL
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("malformed URL: %w", err)
+	}
+
+	// Check scheme
+	if u.Scheme == "" {
+		return fmt.Errorf("missing URL scheme")
+	}
+
+	if requireHTTPS && u.Scheme != "https" {
+		return fmt.Errorf("URL must use HTTPS, got %s", u.Scheme)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid URL scheme: %s (must be http or https)", u.Scheme)
+	}
+
+	// Check host
+	if u.Host == "" {
+		return fmt.Errorf("missing URL host")
+	}
+
+	return nil
+}
+
+// validateBidMediaType validates that the bid matches an available media type in the impression
+// OpenRTB 2.5 Section 3.2.4: While impressions can offer multiple media types,
+// the bid must clearly indicate which type it's for
+func validateBidMediaType(bid *openrtb.Bid, imp *openrtb.Imp) error {
+	// Determine which media type the bid is for based on its properties
+	// Priority: Video (has w/h or protocol) > Native > Banner (default)
+
+	// Check if this is a video bid
+	isVideoBid := bid.Protocol > 0 || (bid.W > 0 && bid.H > 0 && imp.Video != nil)
+
+	// Check if this is a native bid (typically has no dimensions)
+	isNativeBid := bid.W == 0 && bid.H == 0 && imp.Native != nil && imp.Banner == nil
+
+	// Video bid validation
+	if isVideoBid {
+		if imp.Video == nil {
+			return fmt.Errorf("video bid for impression without video object")
+		}
+		return nil
+	}
+
+	// Native bid validation
+	if isNativeBid {
+		if imp.Native == nil {
+			return fmt.Errorf("native bid for impression without native object")
+		}
+		return nil
+	}
+
+	// Banner bid validation (default case)
+	// Banner bids should have dimensions
+	if bid.W > 0 || bid.H > 0 {
+		if imp.Banner == nil {
+			return fmt.Errorf("banner bid for impression without banner object")
+		}
+	}
+
+	return nil
+}
+
+// validateBannerDimensions validates that banner bid dimensions match allowed formats
+// OpenRTB 2.5: Bid dimensions must match banner.format[] or banner.w/h
+func validateBannerDimensions(bid *openrtb.Bid, banner *openrtb.Banner) error {
+	// If bid has no dimensions, we can't validate (some exchanges allow this)
+	if bid.W == 0 && bid.H == 0 {
+		return nil
+	}
+
+	// Check against explicit banner.w/h
+	if banner.W > 0 && banner.H > 0 {
+		if bid.W == banner.W && bid.H == banner.H {
+			return nil
+		}
+	}
+
+	// Check against banner.format[] array
+	if len(banner.Format) > 0 {
+		for _, format := range banner.Format {
+			if format.W > 0 && format.H > 0 {
+				if bid.W == format.W && bid.H == format.H {
+					return nil
+				}
+			}
+		}
+		// If we have formats but no match, that's an error
+		return fmt.Errorf("bid dimensions %dx%d do not match any allowed banner formats", bid.W, bid.H)
+	}
+
+	// If no explicit dimensions or formats specified, allow any dimensions
+	return nil
+}
+
 // validateBid checks if a bid meets OpenRTB requirements and exchange rules
-func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, impIDs map[string]float64) *BidValidationError {
+func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, req *openrtb.BidRequest, impMap map[string]*openrtb.Imp, impFloors map[string]float64) *BidValidationError {
 	if bid == nil {
 		return &BidValidationError{BidderCode: bidderCode, Reason: "nil bid"}
 	}
@@ -512,7 +618,7 @@ func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, impIDs map[s
 	}
 
 	// Validate ImpID exists in request
-	floor, validImp := impIDs[bid.ImpID]
+	imp, validImp := impMap[bid.ImpID]
 	if !validImp {
 		return &BidValidationError{
 			BidID:      bid.ID,
@@ -532,6 +638,26 @@ func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, impIDs map[s
 		}
 	}
 
+	// Check for NaN or Inf in bid price
+	if math.IsNaN(bid.Price) || math.IsInf(bid.Price, 0) {
+		return &BidValidationError{
+			BidID:      bid.ID,
+			ImpID:      bid.ImpID,
+			BidderCode: bidderCode,
+			Reason:     fmt.Sprintf("invalid price (NaN/Inf): %.4f", bid.Price),
+		}
+	}
+
+	// Validate bid price is reasonable (not > $1000 CPM)
+	if bid.Price > maxReasonableCPM {
+		return &BidValidationError{
+			BidID:      bid.ID,
+			ImpID:      bid.ImpID,
+			BidderCode: bidderCode,
+			Reason:     fmt.Sprintf("price %.4f exceeds maximum reasonable CPM %.4f", bid.Price, maxReasonableCPM),
+		}
+	}
+
 	// Check price meets minimum
 	if bid.Price < e.config.MinBidPrice {
 		return &BidValidationError{
@@ -543,6 +669,7 @@ func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, impIDs map[s
 	}
 
 	// Check price meets floor
+	floor := impFloors[bid.ImpID]
 	if floor > 0 && bid.Price < floor {
 		return &BidValidationError{
 			BidID:      bid.ID,
@@ -560,6 +687,60 @@ func (e *Exchange) validateBid(bid *openrtb.Bid, bidderCode string, impIDs map[s
 			ImpID:      bid.ImpID,
 			BidderCode: bidderCode,
 			Reason:     "bid must have either adm or nurl",
+		}
+	}
+
+	// CRITICAL FIX #2: Validate NURL format if present
+	// OpenRTB 2.5: NURL must be a valid HTTPS URL
+	if bid.NURL != "" {
+		if err := validateURL(bid.NURL, true); err != nil {
+			return &BidValidationError{
+				BidID:      bid.ID,
+				ImpID:      bid.ImpID,
+				BidderCode: bidderCode,
+				Reason:     fmt.Sprintf("invalid nurl format: %v", err),
+			}
+		}
+	}
+
+	// CRITICAL FIX #1: Validate ADomain against blocked advertisers
+	// OpenRTB 2.5: Check bid.ADomain doesn't contain any domains from request.BAdv
+	if len(bid.ADomain) > 0 && len(req.BAdv) > 0 {
+		for _, adomain := range bid.ADomain {
+			for _, blocked := range req.BAdv {
+				if strings.EqualFold(adomain, blocked) {
+					return &BidValidationError{
+						BidID:      bid.ID,
+						ImpID:      bid.ImpID,
+						BidderCode: bidderCode,
+						Reason:     fmt.Sprintf("blocked advertiser domain: %s", adomain),
+					}
+				}
+			}
+		}
+	}
+
+	// CRITICAL FIX #3: Validate bid type matches impression media types
+	// OpenRTB 2.5 Section 3.2.4: Bid must match an available media type in the impression
+	if err := validateBidMediaType(bid, imp); err != nil {
+		return &BidValidationError{
+			BidID:      bid.ID,
+			ImpID:      bid.ImpID,
+			BidderCode: bidderCode,
+			Reason:     err.Error(),
+		}
+	}
+
+	// HIGH FIX #3: Validate bid dimensions for banner impressions
+	// OpenRTB 2.5: Banner bid dimensions must match one of the allowed formats
+	if imp.Banner != nil {
+		if err := validateBannerDimensions(bid, imp.Banner); err != nil {
+			return &BidValidationError{
+				BidID:      bid.ID,
+				ImpID:      bid.ImpID,
+				BidderCode: bidderCode,
+				Reason:     err.Error(),
+			}
 		}
 	}
 
@@ -589,9 +770,53 @@ func (e *Exchange) buildImpFloorMap(ctx context.Context, req *openrtb.BidRequest
 	floorsAdjusted := 0
 	for _, imp := range req.Imp {
 		baseFloor := imp.BidFloor
+
+		// Validate base floor is non-negative and reasonable
+		if baseFloor < 0 {
+			logger.Log.Warn().
+				Str("impID", imp.ID).
+				Float64("base_floor", baseFloor).
+				Msg("Negative floor price detected, setting to 0")
+			baseFloor = 0
+		}
+
+		// Check for NaN or Inf in base floor
+		if math.IsNaN(baseFloor) || math.IsInf(baseFloor, 0) {
+			logger.Log.Warn().
+				Str("impID", imp.ID).
+				Float64("base_floor", baseFloor).
+				Msg("Invalid floor price (NaN/Inf), setting to 0")
+			baseFloor = 0
+		}
+
 		if multiplier != 1.0 && baseFloor > 0 {
 			// Multiply floor so DSPs must bid higher to cover platform's cut
-			impFloors[imp.ID] = roundToCents(baseFloor * multiplier)
+			adjustedFloor := baseFloor * multiplier
+
+			// Check for overflow in multiplication
+			if math.IsInf(adjustedFloor, 1) {
+				logger.Log.Error().
+					Str("impID", imp.ID).
+					Float64("base_floor", baseFloor).
+					Float64("multiplier", multiplier).
+					Msg("Floor price multiplication overflow, using base floor")
+				impFloors[imp.ID] = baseFloor
+				continue
+			}
+
+			// Validate adjusted floor is reasonable (not > $1000 CPM)
+			if adjustedFloor > maxReasonableCPM {
+				logger.Log.Warn().
+					Str("impID", imp.ID).
+					Float64("base_floor", baseFloor).
+					Float64("multiplier", multiplier).
+					Float64("adjusted_floor", adjustedFloor).
+					Float64("max_cpm", maxReasonableCPM).
+					Msg("Adjusted floor exceeds maximum reasonable CPM, capping")
+				adjustedFloor = maxReasonableCPM
+			}
+
+			impFloors[imp.ID] = roundToCents(adjustedFloor)
 			floorsAdjusted++
 
 			logger.Log.Debug().
@@ -649,20 +874,79 @@ func (e *Exchange) runAuctionLogic(validBids []ValidatedBid, impFloors map[strin
 			var winningPrice float64
 			originalBidPrice := bids[0].Bid.Bid.Price
 
+			// Validate original bid price before calculations
+			if originalBidPrice < 0 || math.IsNaN(originalBidPrice) || math.IsInf(originalBidPrice, 0) {
+				logger.Log.Warn().
+					Str("impID", impID).
+					Str("bidder", bids[0].BidderCode).
+					Float64("bidPrice", originalBidPrice).
+					Msg("Invalid bid price in auction logic, rejecting")
+				bidsByImp[impID] = nil
+				continue
+			}
+
 			if len(bids) > 1 {
 				// Multiple bids: winner pays second highest + increment
 				// Use integer arithmetic to avoid floating-point precision errors (P0-2)
 				secondPrice := bids[1].Bid.Bid.Price
-				winningPrice = roundToCents(secondPrice + e.config.PriceIncrement)
+
+				// Validate second price before addition
+				if secondPrice < 0 || math.IsNaN(secondPrice) || math.IsInf(secondPrice, 0) {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Float64("secondPrice", secondPrice).
+						Msg("Invalid second price, using floor instead")
+					secondPrice = impFloors[impID]
+				}
+
+				// Check for overflow in addition
+				if secondPrice > maxReasonableCPM-e.config.PriceIncrement {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Float64("secondPrice", secondPrice).
+						Float64("increment", e.config.PriceIncrement).
+						Msg("Second price + increment would overflow, capping")
+					winningPrice = maxReasonableCPM
+				} else {
+					winningPrice = roundToCents(secondPrice + e.config.PriceIncrement)
+				}
 			} else {
 				// P0-6: Single bid - use floor as "second price" for consistent auction semantics
 				floor := impFloors[impID]
+
+				// Validate floor is reasonable
+				if floor < 0 || math.IsNaN(floor) || math.IsInf(floor, 0) {
+					floor = 0
+				}
+
 				if floor > 0 {
-					winningPrice = roundToCents(floor + e.config.PriceIncrement)
+					// Check for overflow in addition
+					if floor > maxReasonableCPM-e.config.PriceIncrement {
+						winningPrice = maxReasonableCPM
+					} else {
+						winningPrice = roundToCents(floor + e.config.PriceIncrement)
+					}
 				} else {
 					// No floor - winner pays minimum bid price + increment
-					winningPrice = roundToCents(e.config.MinBidPrice + e.config.PriceIncrement)
+					if e.config.MinBidPrice > maxReasonableCPM-e.config.PriceIncrement {
+						winningPrice = maxReasonableCPM
+					} else {
+						winningPrice = roundToCents(e.config.MinBidPrice + e.config.PriceIncrement)
+					}
 				}
+			}
+
+			// Validate winning price is non-negative and reasonable
+			if winningPrice < 0 {
+				winningPrice = 0
+			}
+			if winningPrice > maxReasonableCPM {
+				logger.Log.Warn().
+					Str("impID", impID).
+					Float64("winningPrice", winningPrice).
+					Float64("maxCPM", maxReasonableCPM).
+					Msg("Winning price exceeds maximum, capping")
+				winningPrice = maxReasonableCPM
 			}
 
 			// P2-2: If winning price exceeds bid, reject the bid entirely
@@ -712,9 +996,22 @@ func sortBidsByPrice(bids []ValidatedBid) {
 	}
 }
 
+// Price validation constants - ensure bid prices are reasonable
+const (
+	maxReasonableCPM = 1000.0 // Maximum reasonable CPM in dollars ($1000)
+	minBidPrice      = 0.0    // Minimum bid price (non-negative)
+)
+
 // roundToCents rounds a price to 2 decimal places
 // P2-NEW-3: Use math.Round for correct rounding of all values including edge cases
+// Note: This function allows negative values for intermediate calculations (e.g., platform cut)
+// but bid prices themselves are validated separately to ensure they're non-negative
 func roundToCents(price float64) float64 {
+	// Validate input to prevent NaN and Inf propagation
+	if math.IsNaN(price) || math.IsInf(price, 0) {
+		return 0.0
+	}
+
 	// math.Round correctly handles all cases including negative numbers and .5 values
 	return math.Round(price*100) / 100.0
 }
@@ -769,13 +1066,88 @@ func (e *Exchange) applyBidMultiplier(ctx context.Context, bidsByImp map[string]
 		return bidsByImp
 	}
 
+	// Additional validation: check for NaN or Inf in multiplier
+	if math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		logger.Log.Error().
+			Float64("multiplier", multiplier).
+			Msg("Invalid bid multiplier (NaN/Inf), ignoring")
+		return bidsByImp
+	}
+
 	// Apply multiplier to all bid prices (DIVIDE to reduce what publisher sees)
 	for impID, bids := range bidsByImp {
 		for i := range bids {
 			if bids[i].Bid != nil && bids[i].Bid.Bid != nil {
 				originalPrice := bids[i].Bid.Bid.Price
-				adjustedPrice := roundToCents(originalPrice / multiplier)
+
+				// Validate original price before division
+				if originalPrice < 0 {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Str("bidder", bids[i].BidderCode).
+						Float64("price", originalPrice).
+						Msg("Negative bid price detected in multiplier application, skipping")
+					continue
+				}
+
+				// Check for NaN or Inf in original price
+				if math.IsNaN(originalPrice) || math.IsInf(originalPrice, 0) {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Str("bidder", bids[i].BidderCode).
+						Float64("price", originalPrice).
+						Msg("Invalid bid price (NaN/Inf) in multiplier application, skipping")
+					continue
+				}
+
+				// Perform division with bounds checking
+				adjustedPrice := originalPrice / multiplier
+
+				// Check for underflow (price becomes too small)
+				if adjustedPrice < 0.01 && originalPrice > 0 {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Str("bidder", bids[i].BidderCode).
+						Float64("original_price", originalPrice).
+						Float64("multiplier", multiplier).
+						Float64("adjusted_price", adjustedPrice).
+						Msg("Multiplier division resulted in very small price, setting minimum")
+					adjustedPrice = 0.01
+				}
+
+				// Round and validate result
+				adjustedPrice = roundToCents(adjustedPrice)
+
+				// Ensure adjusted price is non-negative
+				if adjustedPrice < 0 {
+					adjustedPrice = 0
+				}
+
+				// Validate adjusted price is reasonable
+				if adjustedPrice > maxReasonableCPM {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Str("bidder", bids[i].BidderCode).
+						Float64("adjusted_price", adjustedPrice).
+						Float64("max_cpm", maxReasonableCPM).
+						Msg("Adjusted price exceeds maximum reasonable CPM, capping")
+					adjustedPrice = maxReasonableCPM
+				}
+
 				platformCut := originalPrice - adjustedPrice
+
+				// Validate platform cut is non-negative
+				if platformCut < 0 {
+					logger.Log.Warn().
+						Str("impID", impID).
+						Str("bidder", bids[i].BidderCode).
+						Float64("original_price", originalPrice).
+						Float64("adjusted_price", adjustedPrice).
+						Float64("platform_cut", platformCut).
+						Msg("Negative platform cut detected, adjusting")
+					platformCut = 0
+					adjustedPrice = originalPrice
+				}
 
 				// Determine media type from bid
 				mediaType := "banner" // default
@@ -1069,12 +1441,20 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 	// Build impression floor map for bid validation (with multiplier applied to floors)
 	impFloors := e.buildImpFloorMap(ctx, req.BidRequest)
 
+	// Build impression map for O(1) lookups during bid validation
+	impMap := adapters.BuildImpMap(req.BidRequest.Imp)
+
 	// Track seen bid IDs for deduplication
 	seenBidIDs := make(map[string]struct{})
 
-	// Collect and validate all bids
-	var validBids []ValidatedBid
-	var validationErrors []error
+	// Collect and validate all bids using pooled slices to reduce GC pressure
+	validBidsPtr := getValidBidsSlice()
+	defer putValidBidsSlice(validBidsPtr)
+	validBids := *validBidsPtr
+
+	validationErrorsPtr := getValidationErrorsSlice()
+	defer putValidationErrorsSlice(validationErrorsPtr)
+	validationErrors := *validationErrorsPtr
 
 	// Collect results
 	for bidderCode, result := range results {
@@ -1149,7 +1529,7 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 			}
 
 			// Validate bid
-			if validErr := e.validateBid(tb.Bid, bidderCode, impFloors); validErr != nil {
+			if validErr := e.validateBid(tb.Bid, bidderCode, req.BidRequest, impMap, impFloors); validErr != nil {
 				// P3-1: Log bid validation failures for debugging
 				logger.Log.Debug().
 					Str("bidder", bidderCode).
@@ -1500,8 +1880,7 @@ func (e *Exchange) cloneRequestWithFPD(req *openrtb.BidRequest, bidderCode strin
 		clone.Source = &sourceCopy
 	}
 
-	// Clone Imp slice - we modify BidFloorCur on each impression
-	// Only clone the slice and the structs we modify, share Banner/Video/etc. pointers
+	// Clone Imp slice - deep copy to prevent bidder modifications from corrupting original request
 	if len(req.Imp) > 0 {
 		limits := e.config.CloneLimits
 		impCount := len(req.Imp)
@@ -1512,6 +1891,32 @@ func (e *Exchange) cloneRequestWithFPD(req *openrtb.BidRequest, bidderCode strin
 		for i := 0; i < impCount; i++ {
 			clone.Imp[i] = req.Imp[i] // Shallow copy of Imp struct
 			clone.Imp[i].BidFloorCur = e.config.DefaultCurrency
+
+			// Deep copy pointer fields to prevent data corruption (CVE-2026-XXXX)
+			if req.Imp[i].Banner != nil {
+				bannerCopy := *req.Imp[i].Banner
+				clone.Imp[i].Banner = &bannerCopy
+			}
+			if req.Imp[i].Video != nil {
+				videoCopy := *req.Imp[i].Video
+				clone.Imp[i].Video = &videoCopy
+			}
+			if req.Imp[i].Audio != nil {
+				audioCopy := *req.Imp[i].Audio
+				clone.Imp[i].Audio = &audioCopy
+			}
+			if req.Imp[i].Native != nil {
+				nativeCopy := *req.Imp[i].Native
+				clone.Imp[i].Native = &nativeCopy
+			}
+			if req.Imp[i].PMP != nil {
+				pmpCopy := *req.Imp[i].PMP
+				clone.Imp[i].PMP = &pmpCopy
+			}
+			if req.Imp[i].Secure != nil {
+				secureCopy := *req.Imp[i].Secure
+				clone.Imp[i].Secure = &secureCopy
+			}
 		}
 	}
 
@@ -1828,9 +2233,16 @@ func (e *Exchange) callBidder(ctx context.Context, req *openrtb.BidRequest, bidd
 		}
 
 		if bidderResp != nil {
-			// P2-5: Validate BidResponse.ID matches BidRequest.ID (OpenRTB 2.x requirement)
-			// Per spec, response ID must echo request ID - reject on mismatch
-			if bidderResp.ResponseID != "" && bidderResp.ResponseID != req.ID {
+			// HIGH FIX #1: Validate BidResponse.ID is present and matches BidRequest.ID
+			// OpenRTB 2.5 Section 4.2.1: BidResponse.id is REQUIRED and must echo BidRequest.id
+			if bidderResp.ResponseID == "" {
+				result.Errors = append(result.Errors, fmt.Errorf(
+					"missing required response ID from %s (OpenRTB 2.5 section 4.2.1)",
+					bidderCode,
+				))
+				continue // Reject all bids from this response
+			}
+			if bidderResp.ResponseID != req.ID {
 				result.Errors = append(result.Errors, fmt.Errorf(
 					"response ID mismatch from %s: expected %q, got %q (bids rejected)",
 					bidderCode, req.ID, bidderResp.ResponseID,
@@ -1843,6 +2255,25 @@ func (e *Exchange) callBidder(ctx context.Context, req *openrtb.BidRequest, bidd
 			responseCurrency := bidderResp.Currency
 			if responseCurrency == "" {
 				responseCurrency = "USD" // OpenRTB 2.5 default
+			}
+
+			// HIGH FIX #2: Validate currency against request allowlist if specified
+			// OpenRTB 2.5: If BidRequest.cur is specified, response currency must be in that list
+			if len(req.Cur) > 0 {
+				currencyAllowed := false
+				for _, allowedCur := range req.Cur {
+					if strings.EqualFold(responseCurrency, allowedCur) {
+						currencyAllowed = true
+						break
+					}
+				}
+				if !currencyAllowed {
+					result.Errors = append(result.Errors, fmt.Errorf(
+						"currency %s from %s not in request allowlist %v (bids rejected)",
+						responseCurrency, bidderCode, req.Cur,
+					))
+					continue
+				}
 			}
 
 			// P1-NEW-4: Defensive check for exchange currency misconfiguration

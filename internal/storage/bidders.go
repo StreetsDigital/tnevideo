@@ -27,6 +27,7 @@ type Bidder struct {
 	Description      string                 `json:"description,omitempty"`
 	DocumentationURL string                 `json:"documentation_url,omitempty"`
 	ContactEmail     string                 `json:"contact_email,omitempty"`
+	Version          int                    `json:"version"`
 	CreatedAt        time.Time              `json:"created_at"`
 	UpdatedAt        time.Time              `json:"updated_at"`
 }
@@ -51,11 +52,14 @@ func NewBidderStore(db *sql.DB) *BidderStore {
 
 // GetByCode retrieves a bidder by their bidder_code
 func (s *BidderStore) GetByCode(ctx context.Context, bidderCode string) (*Bidder, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, bidder_code, bidder_name, endpoint_url, timeout_ms,
 		       enabled, status, supports_banner, supports_video, supports_native, supports_audio,
 		       gvl_vendor_id, http_headers, description, documentation_url, contact_email,
-		       created_at, updated_at
+		       version, created_at, updated_at
 		FROM bidders
 		WHERE bidder_code = $1 AND enabled = true AND status = 'active'
 	`
@@ -80,6 +84,7 @@ func (s *BidderStore) GetByCode(ctx context.Context, bidderCode string) (*Bidder
 		&b.Description,
 		&b.DocumentationURL,
 		&b.ContactEmail,
+		&b.Version,
 		&b.CreatedAt,
 		&b.UpdatedAt,
 	)
@@ -103,11 +108,14 @@ func (s *BidderStore) GetByCode(ctx context.Context, bidderCode string) (*Bidder
 
 // ListActive retrieves all active bidders
 func (s *BidderStore) ListActive(ctx context.Context) ([]*Bidder, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, bidder_code, bidder_name, endpoint_url, timeout_ms,
 		       enabled, status, supports_banner, supports_video, supports_native, supports_audio,
 		       gvl_vendor_id, http_headers, description, documentation_url, contact_email,
-		       created_at, updated_at
+		       version, created_at, updated_at
 		FROM bidders
 		WHERE enabled = true AND status = 'active'
 		ORDER BY bidder_code
@@ -141,6 +149,7 @@ func (s *BidderStore) ListActive(ctx context.Context) ([]*Bidder, error) {
 			&b.Description,
 			&b.DocumentationURL,
 			&b.ContactEmail,
+			&b.Version,
 			&b.CreatedAt,
 			&b.UpdatedAt,
 		)
@@ -164,6 +173,9 @@ func (s *BidderStore) ListActive(ctx context.Context) ([]*Bidder, error) {
 // GetForPublisher retrieves all bidders configured for a specific publisher
 // This joins bidders with the publisher's bidder_params to get complete configurations
 func (s *BidderStore) GetForPublisher(ctx context.Context, publisherID string) ([]*PublisherBidder, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT
 			b.id,
@@ -182,6 +194,7 @@ func (s *BidderStore) GetForPublisher(ctx context.Context, publisherID string) (
 			b.description,
 			b.documentation_url,
 			b.contact_email,
+			b.version,
 			b.created_at,
 			b.updated_at,
 			p.publisher_id,
@@ -226,6 +239,7 @@ func (s *BidderStore) GetForPublisher(ctx context.Context, publisherID string) (
 			&pb.Description,
 			&pb.DocumentationURL,
 			&pb.ContactEmail,
+			&pb.Version,
 			&pb.CreatedAt,
 			&pb.UpdatedAt,
 			&pb.PublisherID,
@@ -258,11 +272,14 @@ func (s *BidderStore) GetForPublisher(ctx context.Context, publisherID string) (
 
 // List retrieves all bidders (active and inactive)
 func (s *BidderStore) List(ctx context.Context) ([]*Bidder, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, bidder_code, bidder_name, endpoint_url, timeout_ms,
 		       enabled, status, supports_banner, supports_video, supports_native, supports_audio,
 		       gvl_vendor_id, http_headers, description, documentation_url, contact_email,
-		       created_at, updated_at
+		       version, created_at, updated_at
 		FROM bidders
 		ORDER BY bidder_code
 	`
@@ -295,6 +312,7 @@ func (s *BidderStore) List(ctx context.Context) ([]*Bidder, error) {
 			&b.Description,
 			&b.DocumentationURL,
 			&b.ContactEmail,
+			&b.Version,
 			&b.CreatedAt,
 			&b.UpdatedAt,
 		)
@@ -317,13 +335,16 @@ func (s *BidderStore) List(ctx context.Context) ([]*Bidder, error) {
 
 // Create adds a new bidder
 func (s *BidderStore) Create(ctx context.Context, b *Bidder) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		INSERT INTO bidders (
 			bidder_code, bidder_name, endpoint_url, timeout_ms,
 			enabled, status, supports_banner, supports_video, supports_native, supports_audio,
 			gvl_vendor_id, http_headers, description, documentation_url, contact_email
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		RETURNING id, created_at, updated_at
+		RETURNING id, version, created_at, updated_at
 	`
 
 	httpHeadersJSON, err := json.Marshal(b.HTTPHeaders)
@@ -353,7 +374,7 @@ func (s *BidderStore) Create(ctx context.Context, b *Bidder) error {
 		b.Description,
 		b.DocumentationURL,
 		b.ContactEmail,
-	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
+	).Scan(&b.ID, &b.Version, &b.CreatedAt, &b.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create bidder: %w", err)
@@ -362,15 +383,40 @@ func (s *BidderStore) Create(ctx context.Context, b *Bidder) error {
 	return nil
 }
 
-// Update modifies an existing bidder
+// Update modifies an existing bidder using optimistic locking
 func (s *BidderStore) Update(ctx context.Context, b *Bidder) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
+	// Begin transaction for optimistic locking
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Check current version
+	var currentVersion int
+	err = tx.QueryRowContext(ctx, "SELECT version FROM bidders WHERE bidder_code = $1", b.BidderCode).Scan(&currentVersion)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("bidder not found: %s", b.BidderCode)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to check version: %w", err)
+	}
+
+	// Verify version matches (optimistic lock check)
+	if currentVersion != b.Version {
+		return fmt.Errorf("concurrent modification detected: bidder %s was updated by another process", b.BidderCode)
+	}
+
 	query := `
 		UPDATE bidders
 		SET bidder_name = $1, endpoint_url = $2, timeout_ms = $3,
 		    enabled = $4, status = $5, supports_banner = $6, supports_video = $7,
 		    supports_native = $8, supports_audio = $9, gvl_vendor_id = $10,
 		    http_headers = $11, description = $12, documentation_url = $13, contact_email = $14
-		WHERE bidder_code = $15
+		WHERE bidder_code = $15 AND version = $16
 	`
 
 	httpHeadersJSON, err := json.Marshal(b.HTTPHeaders)
@@ -378,7 +424,7 @@ func (s *BidderStore) Update(ctx context.Context, b *Bidder) error {
 		return fmt.Errorf("failed to marshal http_headers: %w", err)
 	}
 
-	result, err := s.db.ExecContext(ctx, query,
+	result, err := tx.ExecContext(ctx, query,
 		b.BidderName,
 		b.EndpointURL,
 		b.TimeoutMs,
@@ -394,6 +440,7 @@ func (s *BidderStore) Update(ctx context.Context, b *Bidder) error {
 		b.DocumentationURL,
 		b.ContactEmail,
 		b.BidderCode,
+		b.Version,
 	)
 
 	if err != nil {
@@ -406,14 +453,25 @@ func (s *BidderStore) Update(ctx context.Context, b *Bidder) error {
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("bidder not found: %s", b.BidderCode)
+		return fmt.Errorf("concurrent modification detected: bidder %s version mismatch", b.BidderCode)
 	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Update version in the struct for caller
+	b.Version = currentVersion + 1
 
 	return nil
 }
 
 // Delete soft-deletes a bidder by setting status to 'archived'
 func (s *BidderStore) Delete(ctx context.Context, bidderCode string) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		UPDATE bidders
 		SET status = 'archived', enabled = false
@@ -439,6 +497,9 @@ func (s *BidderStore) Delete(ctx context.Context, bidderCode string) error {
 
 // SetEnabled enables or disables a bidder
 func (s *BidderStore) SetEnabled(ctx context.Context, bidderCode string, enabled bool) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		UPDATE bidders
 		SET enabled = $1
@@ -464,11 +525,14 @@ func (s *BidderStore) SetEnabled(ctx context.Context, bidderCode string, enabled
 
 // GetCapabilities returns bidders filtered by format capability
 func (s *BidderStore) GetCapabilities(ctx context.Context, banner, video, native, audio bool) ([]*Bidder, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, bidder_code, bidder_name, endpoint_url, timeout_ms,
 		       enabled, status, supports_banner, supports_video, supports_native, supports_audio,
 		       gvl_vendor_id, http_headers, description, documentation_url, contact_email,
-		       created_at, updated_at
+		       version, created_at, updated_at
 		FROM bidders
 		WHERE enabled = true
 		  AND status = 'active'
@@ -507,6 +571,7 @@ func (s *BidderStore) GetCapabilities(ctx context.Context, banner, video, native
 			&b.Description,
 			&b.DocumentationURL,
 			&b.ContactEmail,
+			&b.Version,
 			&b.CreatedAt,
 			&b.UpdatedAt,
 		)

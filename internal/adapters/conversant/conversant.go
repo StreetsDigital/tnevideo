@@ -3,11 +3,11 @@ package conversant
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://web.hb.ad.cpe.dotomi.com/cvx/server/hb/ortb/25"
@@ -61,6 +61,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("conversant", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register conversant adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "conversant").Msg("failed to register adapter")
 	}
 }

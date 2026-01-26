@@ -1,0 +1,276 @@
+{
+  "basic_video_response": {
+    "id": "test-request-001",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-001",
+            "impid": "1",
+            "price": 5.50,
+            "adid": "ad-12345",
+            "nurl": "https://win-notify.example.com/win?price=${AUCTION_PRICE}&bid=bid-001",
+            "burl": "https://billing.example.com/bill?bid=bid-001",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"ad-12345\">\n    <InLine>\n      <AdSystem>Demand Partner</AdSystem>\n      <AdTitle>Sample Video Ad</AdTitle>\n      <Impression><![CDATA[https://tracking.example.com/impression?id=12345]]></Impression>\n      <Creatives>\n        <Creative id=\"creative-001\">\n          <Linear>\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\" bitrate=\"5000\"><![CDATA[https://cdn.example.com/videos/ad-12345.mp4]]></MediaFile>\n            </MediaFiles>\n            <TrackingEvents>\n              <Tracking event=\"start\"><![CDATA[https://tracking.example.com/start?id=12345]]></Tracking>\n              <Tracking event=\"firstQuartile\"><![CDATA[https://tracking.example.com/25?id=12345]]></Tracking>\n              <Tracking event=\"midpoint\"><![CDATA[https://tracking.example.com/50?id=12345]]></Tracking>\n              <Tracking event=\"thirdQuartile\"><![CDATA[https://tracking.example.com/75?id=12345]]></Tracking>\n              <Tracking event=\"complete\"><![CDATA[https://tracking.example.com/complete?id=12345]]></Tracking>\n            </TrackingEvents>\n            <VideoClicks>\n              <ClickThrough><![CDATA[https://advertiser.example.com/landing]]></ClickThrough>\n              <ClickTracking><![CDATA[https://tracking.example.com/click?id=12345]]></ClickTracking>\n            </VideoClicks>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "adomain": ["advertiser.example.com"],
+            "cid": "campaign-789",
+            "crid": "creative-001",
+            "cat": ["IAB1-1"],
+            "attr": [],
+            "w": 1920,
+            "h": 1080,
+            "ext": {
+              "duration": 30,
+              "primaryCategory": "IAB1-1"
+            }
+          }
+        ],
+        "seat": "demand-partner-1"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "wrapper_video_response": {
+    "id": "test-request-002",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-002",
+            "impid": "1",
+            "price": 8.00,
+            "adid": "ad-wrapper-456",
+            "nurl": "https://win-notify.partner2.com/win?bid=bid-002&price=${AUCTION_PRICE}",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"wrapper-ad-456\">\n    <Wrapper>\n      <AdSystem>SSP Wrapper</AdSystem>\n      <VASTAdTagURI><![CDATA[https://dsp.example.com/vast?auction=abc123&price=${AUCTION_PRICE}]]></VASTAdTagURI>\n      <Impression><![CDATA[https://ssp-tracking.example.com/imp?id=wrapper-456]]></Impression>\n      <Error><![CDATA[https://ssp-tracking.example.com/error?id=wrapper-456&code=[ERRORCODE]]]></Error>\n      <Creatives></Creatives>\n    </Wrapper>\n  </Ad>\n</VAST>",
+            "adomain": ["advertiser2.example.com"],
+            "cid": "campaign-456",
+            "crid": "wrapper-creative-001",
+            "w": 1920,
+            "h": 1080,
+            "ext": {
+              "duration": 30
+            }
+          }
+        ],
+        "seat": "demand-partner-2"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "multiple_bids_response": {
+    "id": "test-request-003",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-003a",
+            "impid": "1",
+            "price": 6.50,
+            "adid": "ad-003a",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"ad-003a\">\n    <InLine>\n      <AdSystem>Partner A</AdSystem>\n      <AdTitle>Video Ad A</AdTitle>\n      <Impression><![CDATA[https://tracking-a.example.com/imp]]></Impression>\n      <Creatives>\n        <Creative>\n          <Linear>\n            <Duration>00:00:15</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"640\" height=\"480\"><![CDATA[https://cdn-a.example.com/video.mp4]]></MediaFile>\n            </MediaFiles>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "creative-003a",
+            "ext": {
+              "duration": 15
+            }
+          }
+        ],
+        "seat": "partner-a"
+      },
+      {
+        "bid": [
+          {
+            "id": "bid-003b",
+            "impid": "1",
+            "price": 7.25,
+            "adid": "ad-003b",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"ad-003b\">\n    <InLine>\n      <AdSystem>Partner B</AdSystem>\n      <AdTitle>Video Ad B</AdTitle>\n      <Impression><![CDATA[https://tracking-b.example.com/imp]]></Impression>\n      <Creatives>\n        <Creative>\n          <Linear>\n            <Duration>00:00:15</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/webm\" width=\"640\" height=\"480\"><![CDATA[https://cdn-b.example.com/video.webm]]></MediaFile>\n            </MediaFiles>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "creative-003b",
+            "ext": {
+              "duration": 15
+            }
+          }
+        ],
+        "seat": "partner-b"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "ad_pod_response": {
+    "id": "test-request-005",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "pod-bid-1",
+            "impid": "1",
+            "price": 3.50,
+            "adid": "pod-ad-1",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"pod-ad-1\" sequence=\"1\">\n    <InLine>\n      <AdSystem>Ad Pod System</AdSystem>\n      <AdTitle>Pre-roll Ad 1</AdTitle>\n      <Impression><![CDATA[https://pod-tracking.example.com/imp?seq=1]]></Impression>\n      <Creatives>\n        <Creative sequence=\"1\">\n          <Linear>\n            <Duration>00:00:15</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\"><![CDATA[https://pod-cdn.example.com/ad1.mp4]]></MediaFile>\n            </MediaFiles>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "pod-creative-1",
+            "ext": {
+              "duration": 15
+            }
+          },
+          {
+            "id": "pod-bid-2",
+            "impid": "2",
+            "price": 5.50,
+            "adid": "pod-ad-2",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"pod-ad-2\" sequence=\"2\">\n    <InLine>\n      <AdSystem>Ad Pod System</AdSystem>\n      <AdTitle>Pre-roll Ad 2</AdTitle>\n      <Impression><![CDATA[https://pod-tracking.example.com/imp?seq=2]]></Impression>\n      <Creatives>\n        <Creative sequence=\"2\">\n          <Linear>\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\"><![CDATA[https://pod-cdn.example.com/ad2.mp4]]></MediaFile>\n            </MediaFiles>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "pod-creative-2",
+            "ext": {
+              "duration": 30
+            }
+          },
+          {
+            "id": "pod-bid-3",
+            "impid": "3",
+            "price": 3.25,
+            "adid": "pod-ad-3",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"pod-ad-3\" sequence=\"3\">\n    <InLine>\n      <AdSystem>Ad Pod System</AdSystem>\n      <AdTitle>Pre-roll Ad 3</AdTitle>\n      <Impression><![CDATA[https://pod-tracking.example.com/imp?seq=3]]></Impression>\n      <Creatives>\n        <Creative sequence=\"3\">\n          <Linear>\n            <Duration>00:00:15</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\"><![CDATA[https://pod-cdn.example.com/ad3.mp4]]></MediaFile>\n            </MediaFiles>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "pod-creative-3",
+            "ext": {
+              "duration": 15
+            }
+          }
+        ],
+        "seat": "pod-demand-partner"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "companion_ads_response": {
+    "id": "test-request-002",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-companion-001",
+            "impid": "1",
+            "price": 9.00,
+            "adid": "ad-companion-789",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"companion-ad-789\">\n    <InLine>\n      <AdSystem>Companion System</AdSystem>\n      <AdTitle>Video with Companions</AdTitle>\n      <Impression><![CDATA[https://companion-tracking.example.com/imp]]></Impression>\n      <Creatives>\n        <Creative>\n          <Linear>\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\"><![CDATA[https://companion-cdn.example.com/video.mp4]]></MediaFile>\n            </MediaFiles>\n          </Linear>\n        </Creative>\n        <Creative>\n          <CompanionAds required=\"all\">\n            <Companion id=\"companion-1\" width=\"300\" height=\"250\">\n              <StaticResource creativeType=\"image/jpeg\"><![CDATA[https://companion-cdn.example.com/banner-300x250.jpg]]></StaticResource>\n              <CompanionClickThrough><![CDATA[https://advertiser.example.com/landing]]></CompanionClickThrough>\n            </Companion>\n            <Companion id=\"companion-2\" width=\"728\" height=\"90\">\n              <StaticResource creativeType=\"image/png\"><![CDATA[https://companion-cdn.example.com/banner-728x90.png]]></StaticResource>\n              <CompanionClickThrough><![CDATA[https://advertiser.example.com/landing]]></CompanionClickThrough>\n            </Companion>\n          </CompanionAds>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "companion-creative-001",
+            "ext": {
+              "duration": 30,
+              "hasCompanions": true
+            }
+          }
+        ],
+        "seat": "companion-demand-partner"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "skippable_video_response": {
+    "id": "test-request-skip-001",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-skip-001",
+            "impid": "1",
+            "price": 4.75,
+            "adid": "ad-skip-123",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"skip-ad-123\">\n    <InLine>\n      <AdSystem>Skippable Ads</AdSystem>\n      <AdTitle>Skippable Video</AdTitle>\n      <Impression><![CDATA[https://skip-tracking.example.com/imp]]></Impression>\n      <Creatives>\n        <Creative>\n          <Linear skipoffset=\"00:00:05\">\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\"><![CDATA[https://skip-cdn.example.com/video.mp4]]></MediaFile>\n            </MediaFiles>\n            <TrackingEvents>\n              <Tracking event=\"skip\"><![CDATA[https://skip-tracking.example.com/skip]]></Tracking>\n            </TrackingEvents>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "skip-creative-001",
+            "ext": {
+              "duration": 30,
+              "skippable": true,
+              "skipAfter": 5
+            }
+          }
+        ],
+        "seat": "skippable-partner"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "vpaid_response": {
+    "id": "test-request-007",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-vpaid-001",
+            "impid": "1",
+            "price": 12.00,
+            "adid": "ad-vpaid-456",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"vpaid-ad-456\">\n    <InLine>\n      <AdSystem>VPAID System</AdSystem>\n      <AdTitle>Interactive VPAID Ad</AdTitle>\n      <Impression><![CDATA[https://vpaid-tracking.example.com/imp]]></Impression>\n      <Creatives>\n        <Creative apiFramework=\"VPAID\">\n          <Linear>\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"application/javascript\" apiFramework=\"VPAID\" width=\"1920\" height=\"1080\"><![CDATA[https://vpaid-cdn.example.com/vpaid-creative.js]]></MediaFile>\n            </MediaFiles>\n            <AdParameters xmlEncoded=\"false\"><![CDATA[{\"version\":\"2.0\",\"clickthrough\":\"https://advertiser.example.com/landing\"}]]></AdParameters>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "vpaid-creative-001",
+            "ext": {
+              "duration": 30,
+              "apiFramework": "VPAID"
+            }
+          }
+        ],
+        "seat": "vpaid-partner"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "no_bid_response": {
+    "id": "test-request-nobid-001",
+    "seatbid": [],
+    "nbr": 0,
+    "cur": "USD"
+  },
+
+  "ctv_4k_response": {
+    "id": "test-request-004",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-ctv-4k-001",
+            "impid": "1",
+            "price": 15.00,
+            "adid": "ad-ctv-4k-789",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"ctv-4k-ad-789\">\n    <InLine>\n      <AdSystem>CTV Premium</AdSystem>\n      <AdTitle>4K Premium Ad</AdTitle>\n      <Impression><![CDATA[https://ctv-tracking.example.com/imp]]></Impression>\n      <Creatives>\n        <Creative>\n          <Linear>\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"3840\" height=\"2160\" bitrate=\"15000\" codec=\"h265\"><![CDATA[https://ctv-cdn.example.com/video-4k.mp4]]></MediaFile>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\" bitrate=\"5000\" codec=\"h264\"><![CDATA[https://ctv-cdn.example.com/video-1080p.mp4]]></MediaFile>\n            </MediaFiles>\n            <TrackingEvents>\n              <Tracking event=\"start\"><![CDATA[https://ctv-tracking.example.com/start]]></Tracking>\n              <Tracking event=\"complete\"><![CDATA[https://ctv-tracking.example.com/complete]]></Tracking>\n            </TrackingEvents>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "ctv-4k-creative-001",
+            "w": 3840,
+            "h": 2160,
+            "ext": {
+              "duration": 30,
+              "resolution": "4K",
+              "codec": "h265"
+            }
+          }
+        ],
+        "seat": "ctv-premium-partner"
+      }
+    ],
+    "cur": "USD"
+  },
+
+  "extended_tracking_response": {
+    "id": "test-request-tracking-001",
+    "seatbid": [
+      {
+        "bid": [
+          {
+            "id": "bid-tracking-001",
+            "impid": "1",
+            "price": 6.00,
+            "adid": "ad-tracking-456",
+            "adm": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VAST version=\"4.0\">\n  <Ad id=\"tracking-ad-456\">\n    <InLine>\n      <AdSystem>Full Tracking</AdSystem>\n      <AdTitle>Comprehensive Tracking Ad</AdTitle>\n      <Impression id=\"imp-1\"><![CDATA[https://track.example.com/imp/1]]></Impression>\n      <Impression id=\"imp-2\"><![CDATA[https://track.example.com/imp/2]]></Impression>\n      <Error><![CDATA[https://track.example.com/error?code=[ERRORCODE]]]></Error>\n      <Creatives>\n        <Creative>\n          <Linear>\n            <Duration>00:00:30</Duration>\n            <MediaFiles>\n              <MediaFile delivery=\"progressive\" type=\"video/mp4\" width=\"1920\" height=\"1080\"><![CDATA[https://cdn.example.com/video.mp4]]></MediaFile>\n            </MediaFiles>\n            <TrackingEvents>\n              <Tracking event=\"creativeView\"><![CDATA[https://track.example.com/creativeView]]></Tracking>\n              <Tracking event=\"start\"><![CDATA[https://track.example.com/start]]></Tracking>\n              <Tracking event=\"firstQuartile\"><![CDATA[https://track.example.com/firstQuartile]]></Tracking>\n              <Tracking event=\"midpoint\"><![CDATA[https://track.example.com/midpoint]]></Tracking>\n              <Tracking event=\"thirdQuartile\"><![CDATA[https://track.example.com/thirdQuartile]]></Tracking>\n              <Tracking event=\"complete\"><![CDATA[https://track.example.com/complete]]></Tracking>\n              <Tracking event=\"mute\"><![CDATA[https://track.example.com/mute]]></Tracking>\n              <Tracking event=\"unmute\"><![CDATA[https://track.example.com/unmute]]></Tracking>\n              <Tracking event=\"pause\"><![CDATA[https://track.example.com/pause]]></Tracking>\n              <Tracking event=\"resume\"><![CDATA[https://track.example.com/resume]]></Tracking>\n              <Tracking event=\"fullscreen\"><![CDATA[https://track.example.com/fullscreen]]></Tracking>\n              <Tracking event=\"exitFullscreen\"><![CDATA[https://track.example.com/exitFullscreen]]></Tracking>\n              <Tracking event=\"skip\"><![CDATA[https://track.example.com/skip]]></Tracking>\n              <Tracking event=\"close\"><![CDATA[https://track.example.com/close]]></Tracking>\n            </TrackingEvents>\n            <VideoClicks>\n              <ClickThrough><![CDATA[https://advertiser.example.com/landing]]></ClickThrough>\n              <ClickTracking id=\"click-1\"><![CDATA[https://track.example.com/click/1]]></ClickTracking>\n              <ClickTracking id=\"click-2\"><![CDATA[https://track.example.com/click/2]]></ClickTracking>\n            </VideoClicks>\n          </Linear>\n        </Creative>\n      </Creatives>\n    </InLine>\n  </Ad>\n</VAST>",
+            "crid": "tracking-creative-001",
+            "ext": {
+              "duration": 30,
+              "trackingCount": 14
+            }
+          }
+        ],
+        "seat": "full-tracking-partner"
+      }
+    ],
+    "cur": "USD"
+  }
+}

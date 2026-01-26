@@ -4,6 +4,7 @@ package metrics
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -75,7 +76,7 @@ func NewMetrics(namespace string) *Metrics {
 				Name:      "http_requests_total",
 				Help:      "Total number of HTTP requests",
 			},
-			[]string{"method", "path", "status"},
+			[]string{"method", "route", "status"},
 		),
 		RequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -84,7 +85,7 @@ func NewMetrics(namespace string) *Metrics {
 				Help:      "HTTP request duration in seconds",
 				Buckets:   []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
 			},
-			[]string{"method", "path"},
+			[]string{"method", "route"},
 		),
 		RequestsInFlight: prometheus.NewGauge(
 			prometheus.GaugeOpts{
@@ -301,13 +302,15 @@ func NewMetrics(namespace string) *Metrics {
 		),
 
 		// Revenue/Margin metrics
+		// NOTE: Publisher label removed to prevent cardinality explosion
+		// Use external analytics for per-publisher metrics
 		RevenueTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Name:      "revenue_total",
 				Help:      "Total bid revenue in currency units (before multiplier adjustment)",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		PublisherPayoutTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -315,7 +318,7 @@ func NewMetrics(namespace string) *Metrics {
 				Name:      "publisher_payout_total",
 				Help:      "Total payout to publishers in currency units (after multiplier adjustment)",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		PlatformMarginTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -323,7 +326,7 @@ func NewMetrics(namespace string) *Metrics {
 				Name:      "platform_margin_total",
 				Help:      "Total platform margin/revenue in currency units (difference between revenue and payout)",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		MarginPercentage: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -332,7 +335,7 @@ func NewMetrics(namespace string) *Metrics {
 				Help:      "Platform margin percentage distribution",
 				Buckets:   []float64{0, 1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50},
 			},
-			[]string{"publisher"},
+			[]string{},
 		),
 		FloorAdjustments: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -340,7 +343,7 @@ func NewMetrics(namespace string) *Metrics {
 				Name:      "floor_adjustments_total",
 				Help:      "Number of floor price adjustments applied (count)",
 			},
-			[]string{"publisher"},
+			[]string{},
 		),
 	}
 
@@ -388,6 +391,59 @@ func Handler() http.Handler {
 	return promhttp.Handler()
 }
 
+// normalizePath normalizes URL paths to prevent cardinality explosion
+// Maps specific paths to known route patterns, uses "other" for unknown paths
+func normalizePath(path string) string {
+	// Remove trailing slash for consistency
+	if len(path) > 1 && strings.HasSuffix(path, "/") {
+		path = path[:len(path)-1]
+	}
+
+	// Exact match for known paths
+	switch path {
+	case "/openrtb2/auction":
+		return "/openrtb2/auction"
+	case "/openrtb2/amp":
+		return "/openrtb2/amp"
+	case "/health", "/healthz":
+		return "/health"
+	case "/metrics":
+		return "/metrics"
+	case "/status":
+		return "/status"
+	case "/info":
+		return "/info"
+	case "":
+		return "/"
+	}
+
+	// Prefix matching for known patterns
+	if strings.HasPrefix(path, "/openrtb2/") {
+		return "/openrtb2/*"
+	}
+	if strings.HasPrefix(path, "/video/") {
+		return "/video/*"
+	}
+	if strings.HasPrefix(path, "/vtrack/") {
+		return "/vtrack/*"
+	}
+	if strings.HasPrefix(path, "/event/") {
+		return "/event/*"
+	}
+	if strings.HasPrefix(path, "/cookie_sync") {
+		return "/cookie_sync/*"
+	}
+	if strings.HasPrefix(path, "/setuid") {
+		return "/setuid/*"
+	}
+	if strings.HasPrefix(path, "/getuids") {
+		return "/getuids"
+	}
+
+	// Unknown path - use generic label
+	return "/other"
+}
+
 // Middleware returns HTTP middleware that records request metrics
 func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -403,8 +459,11 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(wrapped.statusCode)
 
-		m.RequestsTotal.WithLabelValues(r.Method, r.URL.Path, status).Inc()
-		m.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+		// Normalize path to prevent cardinality explosion
+		route := normalizePath(r.URL.Path)
+
+		m.RequestsTotal.WithLabelValues(r.Method, route, status).Inc()
+		m.RequestDuration.WithLabelValues(r.Method, route).Observe(duration)
 	})
 }
 
@@ -495,26 +554,29 @@ func (m *Metrics) IncAuthFailures() {
 // originalPrice: the actual bid price from DSP
 // adjustedPrice: the price returned to publisher (after dividing by multiplier)
 // platformCut: the difference (your revenue)
+// NOTE: publisher parameter removed to prevent cardinality explosion
+// Use external analytics/logging for per-publisher revenue tracking
 func (m *Metrics) RecordMargin(publisher, bidder, mediaType string, originalPrice, adjustedPrice, platformCut float64) {
 	// Track total revenue (what DSPs actually bid)
-	m.RevenueTotal.WithLabelValues(publisher, bidder, mediaType).Add(originalPrice)
+	m.RevenueTotal.WithLabelValues(bidder, mediaType).Add(originalPrice)
 
 	// Track publisher payout (what they receive)
-	m.PublisherPayoutTotal.WithLabelValues(publisher, bidder, mediaType).Add(adjustedPrice)
+	m.PublisherPayoutTotal.WithLabelValues(bidder, mediaType).Add(adjustedPrice)
 
 	// Track platform margin (your cut)
-	m.PlatformMarginTotal.WithLabelValues(publisher, bidder, mediaType).Add(platformCut)
+	m.PlatformMarginTotal.WithLabelValues(bidder, mediaType).Add(platformCut)
 
-	// Track margin percentage
+	// Track margin percentage (aggregate across all publishers)
 	if originalPrice > 0 {
 		marginPercent := (platformCut / originalPrice) * 100
-		m.MarginPercentage.WithLabelValues(publisher).Observe(marginPercent)
+		m.MarginPercentage.WithLabelValues().Observe(marginPercent)
 	}
 }
 
 // RecordFloorAdjustment records when a floor price is adjusted via multiplier
+// NOTE: publisher parameter removed to prevent cardinality explosion
 func (m *Metrics) RecordFloorAdjustment(publisher string) {
-	m.FloorAdjustments.WithLabelValues(publisher).Inc()
+	m.FloorAdjustments.WithLabelValues().Inc()
 }
 
 // SetBidderCircuitState sets the circuit breaker state for a bidder

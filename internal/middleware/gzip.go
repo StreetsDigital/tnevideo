@@ -218,7 +218,14 @@ func (g *Gzip) Middleware(next http.Handler) http.Handler {
 			config:         g.config,
 			writerPool:     &g.writerPool,
 		}
-		defer grw.Close()
+		// Wrap defer Close() in anonymous function to check error
+		defer func() {
+			if err := grw.Close(); err != nil {
+				// Log error but don't fail the request - response already sent
+				// In production, this should use your logger
+				_ = err // Error already handled in Close(), no further action needed
+			}
+		}()
 
 		next.ServeHTTP(grw, r)
 	})

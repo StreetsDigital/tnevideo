@@ -69,7 +69,8 @@ func (sl *SizeLimiter) Middleware(next http.Handler) http.Handler {
 		}
 
 		// Check Content-Length header if present
-		if r.ContentLength > maxBodySize {
+		// SECURITY: Also reject -1 (unknown length) to prevent OOM attacks (CVE-2026-XXXX)
+		if r.ContentLength < 0 || r.ContentLength > maxBodySize {
 			http.Error(w, `{"error":"request body too large"}`, http.StatusRequestEntityTooLarge)
 			return
 		}

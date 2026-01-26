@@ -11,6 +11,7 @@ import (
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 // Adapter implements a demo bidder that returns mock bids
@@ -186,6 +187,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("demo", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register demo adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "demo").Msg("failed to register adapter")
 	}
 }

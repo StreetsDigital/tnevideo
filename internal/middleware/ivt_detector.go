@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	// TODO: Re-enable when geoip2 dependency is fixed in CI
@@ -219,9 +220,14 @@ type IVTDetector struct {
 	metrics *IVTMetrics
 	geoip   GeoIPLookup // GeoIP lookup service (nil if disabled)
 
-	// Compiled regex patterns (cached for performance)
-	uaPatterns   []*regexp.Regexp
-	patternsOnce sync.Once
+	// Pattern compilation with version-based reloading (thread-safe)
+	// Instead of sync.Once (which cannot be safely reset), we use a version counter.
+	// When config changes, patternsVersion is incremented atomically.
+	// Readers check if their cached version matches and recompile if needed.
+	patternsVersion atomic.Uint64    // Incremented on config change
+	patternsMu      sync.RWMutex     // Protects uaPatterns and loadedVersion
+	uaPatterns      []*regexp.Regexp // Compiled regex patterns (cached for performance)
+	loadedVersion   uint64           // Version when patterns were last compiled
 }
 
 // IVTMetrics tracks IVT detection metrics
@@ -263,29 +269,69 @@ func NewIVTDetector(config *IVTConfig) *IVTDetector {
 		}
 	}
 
-	return &IVTDetector{
+	d := &IVTDetector{
 		config:  config,
 		metrics: &IVTMetrics{},
 		geoip:   geoip,
 	}
+	// Initialize version to 1 so that first call to compilePatterns will compile
+	d.patternsVersion.Store(1)
+	d.loadedVersion = 0 // Not yet loaded
+
+	return d
 }
 
-// compilePatterns compiles regex patterns once for performance
+// compilePatterns compiles regex patterns if needed (version-based, thread-safe)
+// This replaces the previous sync.Once approach which had a race condition when
+// SetConfig reset the sync.Once while other goroutines were executing.
 func (d *IVTDetector) compilePatterns() {
-	d.patternsOnce.Do(func() {
-		d.mu.RLock()
-		patterns := d.config.SuspiciousUAPatterns
-		d.mu.RUnlock()
+	// Fast path: check if patterns are already up to date
+	currentVersion := d.patternsVersion.Load()
 
-		d.uaPatterns = make([]*regexp.Regexp, 0, len(patterns))
-		for _, pattern := range patterns {
-			if re, err := regexp.Compile(pattern); err == nil {
-				d.uaPatterns = append(d.uaPatterns, re)
-			} else {
-				log.Warn().Err(err).Str("pattern", pattern).Msg("Failed to compile IVT UA pattern")
-			}
+	d.patternsMu.RLock()
+	needsRecompile := d.loadedVersion != currentVersion
+	d.patternsMu.RUnlock()
+
+	if !needsRecompile {
+		return
+	}
+
+	// Slow path: need to recompile patterns
+	d.patternsMu.Lock()
+	defer d.patternsMu.Unlock()
+
+	// Double-check after acquiring write lock (another goroutine may have compiled)
+	currentVersion = d.patternsVersion.Load()
+	if d.loadedVersion == currentVersion {
+		return
+	}
+
+	// Get patterns from config (protected by config mutex)
+	d.mu.RLock()
+	patterns := d.config.SuspiciousUAPatterns
+	d.mu.RUnlock()
+
+	// Compile patterns
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		if re, err := regexp.Compile(pattern); err == nil {
+			compiled = append(compiled, re)
+		} else {
+			log.Warn().Err(err).Str("pattern", pattern).Msg("Failed to compile IVT UA pattern")
 		}
-	})
+	}
+
+	d.uaPatterns = compiled
+	d.loadedVersion = currentVersion
+}
+
+// getCompiledPatterns returns the compiled UA patterns (thread-safe)
+func (d *IVTDetector) getCompiledPatterns() []*regexp.Regexp {
+	d.compilePatterns()
+
+	d.patternsMu.RLock()
+	defer d.patternsMu.RUnlock()
+	return d.uaPatterns
 }
 
 // Validate performs IVT detection on a request
@@ -355,8 +401,8 @@ func (d *IVTDetector) checkUserAgentWithConfig(r *http.Request, result *IVTResul
 	}
 
 	// Check against suspicious patterns
-	d.compilePatterns()
-	for _, pattern := range d.uaPatterns {
+	patterns := d.getCompiledPatterns()
+	for _, pattern := range patterns {
 		if pattern.MatchString(ua) {
 			result.Signals = append(result.Signals, IVTSignal{
 				Type:        "suspicious_ua",
@@ -425,7 +471,8 @@ func (d *IVTDetector) checkGeoWithConfig(r *http.Request, result *IVTResult, cfg
 	// Lookup country code
 	country, err := d.geoip.LookupCountry(clientIP)
 	if err != nil {
-		log.Debug().Err(err).Str("ip", clientIP).Msg("GeoIP lookup failed")
+		// GDPR FIX: Anonymize IP before logging to prevent PII leakage
+		log.Debug().Err(err).Str("ip", AnonymizeIPForLogging(clientIP)).Msg("GeoIP lookup failed")
 		return
 	}
 
@@ -546,14 +593,18 @@ func (d *IVTDetector) GetMetrics() IVTMetrics {
 	}
 }
 
-// SetConfig updates IVT configuration at runtime
+// SetConfig updates IVT configuration at runtime (thread-safe)
+// This uses a version counter approach instead of resetting sync.Once
+// to avoid race conditions with concurrent pattern compilation.
 func (d *IVTDetector) SetConfig(config *IVTConfig) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.config = config
+	d.mu.Unlock()
 
-	// Reset compiled patterns to force recompile
-	d.patternsOnce = sync.Once{}
+	// Increment version to signal that patterns need recompilation
+	// This is atomic and thread-safe - readers will see the new version
+	// and recompile patterns on their next access
+	d.patternsVersion.Add(1)
 }
 
 // GetConfig returns current configuration

@@ -289,3 +289,189 @@ func TestIVTDetector_GetConfig(t *testing.T) {
 		t.Error("Expected config.BlockingEnabled to be true")
 	}
 }
+
+// TestIVTDetector_ConcurrentConfigReload tests thread-safe config updates
+// This test verifies the fix for the sync.Once reset race condition.
+// Previously, SetConfig would reset sync.Once while compilePatterns was executing,
+// causing a data race. The fix uses a version counter approach instead.
+func TestIVTDetector_ConcurrentConfigReload(t *testing.T) {
+	detector := NewIVTDetector(nil)
+
+	// Number of concurrent goroutines
+	const numReaders = 50
+	const numWriters = 10
+	const iterations = 100
+
+	// Use channels to synchronize start and completion
+	start := make(chan struct{})
+	done := make(chan struct{}, numReaders+numWriters)
+
+	// Start reader goroutines that continuously validate requests
+	for i := 0; i < numReaders; i++ {
+		go func() {
+			<-start // Wait for signal to start
+			for j := 0; j < iterations; j++ {
+				req := httptest.NewRequest("POST", "/openrtb2/auction", nil)
+				req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+				req.Header.Set("Referer", "https://example.com")
+
+				// This calls compilePatterns() internally
+				result := detector.Validate(context.Background(), req, "test-pub", "example.com")
+
+				// Basic sanity check - should not panic or return nil
+				if result == nil {
+					t.Error("Validate returned nil result")
+				}
+			}
+			done <- struct{}{}
+		}()
+	}
+
+	// Start writer goroutines that continuously update config
+	for i := 0; i < numWriters; i++ {
+		go func(writerID int) {
+			<-start // Wait for signal to start
+			for j := 0; j < iterations; j++ {
+				config := DefaultIVTConfig()
+				// Alternate between different patterns to ensure recompilation happens
+				if j%2 == 0 {
+					config.SuspiciousUAPatterns = []string{`(?i)bot`, `(?i)crawler`}
+				} else {
+					config.SuspiciousUAPatterns = []string{`(?i)spider`, `(?i)scraper`, `(?i)curl`}
+				}
+				// This used to reset sync.Once, causing a race condition
+				detector.SetConfig(config)
+			}
+			done <- struct{}{}
+		}(i)
+	}
+
+	// Start all goroutines simultaneously
+	close(start)
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numReaders+numWriters; i++ {
+		<-done
+	}
+}
+
+// TestIVTDetector_ConcurrentConfigReload_RaceDetector is designed to trigger
+// the race detector if the sync.Once reset race condition exists.
+// Run with: go test -race -run TestIVTDetector_ConcurrentConfigReload_RaceDetector
+func TestIVTDetector_ConcurrentConfigReload_RaceDetector(t *testing.T) {
+	detector := NewIVTDetector(nil)
+
+	// Channels for tight synchronization
+	ready := make(chan struct{})
+	start := make(chan struct{})
+	done := make(chan struct{}, 2)
+
+	// Goroutine 1: calls Validate (which calls compilePatterns)
+	go func() {
+		ready <- struct{}{}
+		<-start
+		for i := 0; i < 1000; i++ {
+			req := httptest.NewRequest("POST", "/openrtb2/auction", nil)
+			req.Header.Set("User-Agent", "curl/7.68.0") // Triggers pattern matching
+			detector.Validate(context.Background(), req, "test-pub", "example.com")
+		}
+		done <- struct{}{}
+	}()
+
+	// Goroutine 2: calls SetConfig (which used to reset sync.Once)
+	go func() {
+		ready <- struct{}{}
+		<-start
+		for i := 0; i < 1000; i++ {
+			config := DefaultIVTConfig()
+			config.SuspiciousUAPatterns = []string{`(?i)bot`, `(?i)curl`}
+			detector.SetConfig(config)
+		}
+		done <- struct{}{}
+	}()
+
+	// Wait for both goroutines to be ready
+	<-ready
+	<-ready
+
+	// Start both simultaneously
+	close(start)
+
+	// Wait for completion
+	<-done
+	<-done
+}
+
+// TestIVTDetector_PatternRecompilation verifies patterns are recompiled after config change
+func TestIVTDetector_PatternRecompilation(t *testing.T) {
+	// Start with config that does NOT match "testbot"
+	config := DefaultIVTConfig()
+	config.SuspiciousUAPatterns = []string{`(?i)curl`, `(?i)wget`}
+	detector := NewIVTDetector(config)
+
+	// First validation - "testbot" should NOT be flagged
+	req := httptest.NewRequest("POST", "/openrtb2/auction", nil)
+	req.Header.Set("User-Agent", "testbot/1.0")
+	req.Header.Set("Referer", "https://example.com")
+
+	result := detector.Validate(context.Background(), req, "test-pub", "example.com")
+
+	hasSuspiciousUA := false
+	for _, signal := range result.Signals {
+		if signal.Type == "suspicious_ua" {
+			hasSuspiciousUA = true
+			break
+		}
+	}
+
+	if hasSuspiciousUA {
+		t.Error("Expected 'testbot' NOT to be flagged with initial patterns")
+	}
+
+	// Update config to include pattern that matches "testbot"
+	config2 := DefaultIVTConfig()
+	config2.SuspiciousUAPatterns = []string{`(?i)testbot`}
+	detector.SetConfig(config2)
+
+	// Second validation - "testbot" should now be flagged
+	req2 := httptest.NewRequest("POST", "/openrtb2/auction", nil)
+	req2.Header.Set("User-Agent", "testbot/1.0")
+	req2.Header.Set("Referer", "https://example.com")
+
+	result2 := detector.Validate(context.Background(), req2, "test-pub", "example.com")
+
+	hasSuspiciousUA = false
+	for _, signal := range result2.Signals {
+		if signal.Type == "suspicious_ua" {
+			hasSuspiciousUA = true
+			break
+		}
+	}
+
+	if !hasSuspiciousUA {
+		t.Error("Expected 'testbot' to be flagged after config update")
+	}
+}
+
+// TestIVTDetector_VersionIncrement verifies the version counter increments correctly
+func TestIVTDetector_VersionIncrement(t *testing.T) {
+	detector := NewIVTDetector(nil)
+
+	// Initial version should be 1 (set in NewIVTDetector)
+	initialVersion := detector.patternsVersion.Load()
+	if initialVersion != 1 {
+		t.Errorf("Expected initial version 1, got %d", initialVersion)
+	}
+
+	// After SetConfig, version should increment
+	for i := 0; i < 5; i++ {
+		config := DefaultIVTConfig()
+		detector.SetConfig(config)
+	}
+
+	finalVersion := detector.patternsVersion.Load()
+	expectedVersion := uint64(6) // 1 initial + 5 increments
+	if finalVersion != expectedVersion {
+		t.Errorf("Expected version %d after 5 SetConfig calls, got %d", expectedVersion, finalVersion)
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const (
@@ -124,6 +125,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("pubmatic", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register pubmatic adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "pubmatic").Msg("failed to register adapter")
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://tlx.3lift.com/s2s/auction"
@@ -53,11 +54,19 @@ func (a *Adapter) MakeBids(request *openrtb.BidRequest, responseData *adapters.R
 	}
 
 	response := &adapters.BidderResponse{Currency: bidResp.Cur, ResponseID: bidResp.ID, Bids: make([]*adapters.TypedBid, 0)}
+
+	// Build impression map for O(1) bid type detection
+	impMap := adapters.BuildImpMap(request.Imp)
+
 	for _, seatBid := range bidResp.SeatBid {
 		for i := range seatBid.Bid {
+			bid := &seatBid.Bid[i]
+			// Detect bid type from impression instead of hardcoding
+			bidType := adapters.GetBidTypeFromMap(bid, impMap)
+
 			response.Bids = append(response.Bids, &adapters.TypedBid{
-				Bid:     &seatBid.Bid[i],
-				BidType: adapters.BidTypeNative,
+				Bid:     bid,
+				BidType: bidType,
 			})
 		}
 	}
@@ -79,6 +88,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("triplelift", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register triplelift adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "triplelift").Msg("failed to register adapter")
 	}
 }

@@ -3,11 +3,11 @@ package spotx
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://search.spotxchange.com/openrtb/2.3/ortb"
@@ -61,6 +61,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("spotx", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register spotx adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "spotx").Msg("failed to register adapter")
 	}
 }

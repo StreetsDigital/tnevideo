@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/thenexusengine/tne_springwire/internal/middleware"
 	"github.com/thenexusengine/tne_springwire/pkg/vast"
 )
 
@@ -133,6 +134,18 @@ func (h *VideoEventHandler) processEvent(req *VideoEventRequest, r *http.Request
 
 	eventType := vast.EventType(req.Event)
 
+	// GDPR FIX: Only collect IP/UA if consent allows
+	var ipAddress, userAgent string
+	if middleware.ShouldCollectPII(r.Context()) {
+		// Consent validated, collect but anonymize IP for storage
+		ipAddress = middleware.AnonymizeIPForLogging(getClientIP(r))
+		userAgent = middleware.AnonymizeUserAgentForLogging(r.UserAgent())
+	} else {
+		// No consent, do not collect PII
+		ipAddress = ""
+		userAgent = ""
+	}
+
 	event := &VideoEvent{
 		EventType:    eventType,
 		BidID:        req.BidID,
@@ -145,8 +158,8 @@ func (h *VideoEventHandler) processEvent(req *VideoEventRequest, r *http.Request
 		ClickURL:     req.ClickURL,
 		SessionID:    req.SessionID,
 		ContentID:    req.ContentID,
-		IPAddress:    getClientIP(r),
-		UserAgent:    r.UserAgent(),
+		IPAddress:    ipAddress,
+		UserAgent:    userAgent,
 	}
 
 	if req.Timestamp > 0 {

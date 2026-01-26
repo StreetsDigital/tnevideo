@@ -44,7 +44,7 @@ func TestBidderStore_GetByCode_Success(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).AddRow(
 		expectedBidder.ID,
 		expectedBidder.BidderCode,
@@ -62,6 +62,7 @@ func TestBidderStore_GetByCode_Success(t *testing.T) {
 		expectedBidder.Description,
 		expectedBidder.DocumentationURL,
 		expectedBidder.ContactEmail,
+		1, // version
 		expectedBidder.CreatedAt,
 		expectedBidder.UpdatedAt,
 	)
@@ -166,12 +167,12 @@ func TestBidderStore_GetByCode_InvalidJSON(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).AddRow(
 		"1", "appnexus", "AppNexus", "https://example.com", 500,
 		true, "active", true, true, false, false,
 		nil, []byte("invalid json{"), "", "", "",
-		time.Now(), time.Now(),
+		1, time.Now(), time.Now(),
 	)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE bidder_code").
@@ -212,19 +213,19 @@ func TestBidderStore_ListActive_Success(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).
 		AddRow(
 			bidder1.ID, bidder1.BidderCode, bidder1.BidderName, bidder1.EndpointURL, bidder1.TimeoutMs,
 			bidder1.Enabled, bidder1.Status, bidder1.SupportsBanner, bidder1.SupportsVideo, bidder1.SupportsNative, bidder1.SupportsAudio,
 			bidder1.GVLVendorID, headers1, bidder1.Description, bidder1.DocumentationURL, bidder1.ContactEmail,
-			bidder1.CreatedAt, bidder1.UpdatedAt,
+			1, bidder1.CreatedAt, bidder1.UpdatedAt,
 		).
 		AddRow(
 			bidder2.ID, bidder2.BidderCode, bidder2.BidderName, bidder2.EndpointURL, bidder2.TimeoutMs,
 			bidder2.Enabled, bidder2.Status, bidder2.SupportsBanner, bidder2.SupportsVideo, bidder2.SupportsNative, bidder2.SupportsAudio,
 			bidder2.GVLVendorID, headers2, bidder2.Description, bidder2.DocumentationURL, bidder2.ContactEmail,
-			bidder2.CreatedAt, bidder2.UpdatedAt,
+			1, bidder2.CreatedAt, bidder2.UpdatedAt,
 		)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE enabled").
@@ -265,7 +266,7 @@ func TestBidderStore_ListActive_Empty(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	})
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE enabled").
@@ -329,12 +330,12 @@ func TestBidderStore_ListActive_ScanError(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).AddRow(
 		"1", "appnexus", "AppNexus", "https://example.com", "invalid_int",
 		true, "active", true, true, false, false,
 		nil, []byte("{}"), "", "", "",
-		time.Now(), time.Now(),
+		1, time.Now(), time.Now(),
 	)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE enabled").
@@ -373,12 +374,12 @@ func TestBidderStore_GetForPublisher_Success(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at", "publisher_id", "publisher_name", "bidder_config",
+		"version", "created_at", "updated_at", "publisher_id", "publisher_name", "bidder_config",
 	}).AddRow(
 		"1", "appnexus", "AppNexus", "https://ib.adnxs.com/openrtb2", 500,
 		true, "active", true, true, false, false,
 		nil, httpHeadersJSON, "AppNexus bidder", "https://example.com", "test@example.com",
-		time.Now(), time.Now(), "pub123", "Test Publisher", bidderConfigJSON,
+		1, time.Now(), time.Now(), "pub123", "Test Publisher", bidderConfigJSON,
 	)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders b CROSS JOIN publishers p").
@@ -427,7 +428,7 @@ func TestBidderStore_GetForPublisher_Empty(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at", "publisher_id", "publisher_name", "bidder_config",
+		"version", "created_at", "updated_at", "publisher_id", "publisher_name", "bidder_config",
 	})
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders b CROSS JOIN publishers p").
@@ -538,16 +539,16 @@ func TestBidderStore_List_Success(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).
 		AddRow(bidder1.ID, bidder1.BidderCode, bidder1.BidderName, bidder1.EndpointURL, bidder1.TimeoutMs,
 			bidder1.Enabled, bidder1.Status, bidder1.SupportsBanner, bidder1.SupportsVideo, bidder1.SupportsNative, bidder1.SupportsAudio,
 			bidder1.GVLVendorID, httpHeadersJSON1, bidder1.Description, bidder1.DocumentationURL, bidder1.ContactEmail,
-			bidder1.CreatedAt, bidder1.UpdatedAt).
+			1, bidder1.CreatedAt, bidder1.UpdatedAt).
 		AddRow(bidder2.ID, bidder2.BidderCode, bidder2.BidderName, bidder2.EndpointURL, bidder2.TimeoutMs,
 			bidder2.Enabled, bidder2.Status, bidder2.SupportsBanner, bidder2.SupportsVideo, bidder2.SupportsNative, bidder2.SupportsAudio,
 			bidder2.GVLVendorID, httpHeadersJSON2, bidder2.Description, bidder2.DocumentationURL, bidder2.ContactEmail,
-			bidder2.CreatedAt, bidder2.UpdatedAt)
+			1, bidder2.CreatedAt, bidder2.UpdatedAt)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders ORDER BY bidder_code").
 		WillReturnRows(rows)
@@ -581,7 +582,7 @@ func TestBidderStore_List_Empty(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	})
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders ORDER BY bidder_code").
@@ -640,8 +641,8 @@ func TestBidderStore_Create_Success(t *testing.T) {
 	bidder.ID = "" // ID should be assigned by DB
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
-		AddRow("123", now, now)
+	rows := sqlmock.NewRows([]string{"id", "version", "created_at", "updated_at"}).
+		AddRow("123", 1, now, now)
 
 	mock.ExpectQuery("INSERT INTO bidders").
 		WithArgs(
@@ -705,9 +706,20 @@ func TestBidderStore_Update_Success(t *testing.T) {
 	ctx := context.Background()
 
 	bidder := createTestBidder("appnexus")
+	bidder.Version = 1
 	bidder.BidderName = "Updated Name"
 	bidder.TimeoutMs = 2000
 
+	// Expect transaction begin
+	mock.ExpectBegin()
+
+	// Expect version check
+	versionRows := sqlmock.NewRows([]string{"version"}).AddRow(1)
+	mock.ExpectQuery("SELECT version FROM bidders WHERE bidder_code").
+		WithArgs("appnexus").
+		WillReturnRows(versionRows)
+
+	// Expect update with version
 	mock.ExpectExec("UPDATE bidders").
 		WithArgs(
 			bidder.BidderName, bidder.EndpointURL, bidder.TimeoutMs,
@@ -716,8 +728,12 @@ func TestBidderStore_Update_Success(t *testing.T) {
 			sqlmock.AnyArg(), // http_headers JSON
 			bidder.Description, bidder.DocumentationURL, bidder.ContactEmail,
 			bidder.BidderCode,
+			1, // version
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Expect commit
+	mock.ExpectCommit()
 
 	err = store.Update(ctx, bidder)
 	if err != nil {
@@ -741,9 +757,18 @@ func TestBidderStore_Update_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	bidder := createTestBidder("nonexistent")
+	bidder.Version = 1
 
-	mock.ExpectExec("UPDATE bidders").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	// Expect transaction begin
+	mock.ExpectBegin()
+
+	// Expect version check - return no rows
+	mock.ExpectQuery("SELECT version FROM bidders WHERE bidder_code").
+		WithArgs("nonexistent").
+		WillReturnError(sql.ErrNoRows)
+
+	// Expect rollback
+	mock.ExpectRollback()
 
 	err = store.Update(ctx, bidder)
 	if err == nil {
@@ -898,12 +923,12 @@ func TestBidderStore_GetCapabilities_Banner(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).AddRow(
 		bidder.ID, bidder.BidderCode, bidder.BidderName, bidder.EndpointURL, bidder.TimeoutMs,
 		bidder.Enabled, bidder.Status, bidder.SupportsBanner, bidder.SupportsVideo, bidder.SupportsNative, bidder.SupportsAudio,
 		bidder.GVLVendorID, httpHeadersJSON, bidder.Description, bidder.DocumentationURL, bidder.ContactEmail,
-		bidder.CreatedAt, bidder.UpdatedAt,
+		1, bidder.CreatedAt, bidder.UpdatedAt,
 	)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE enabled = true AND status = 'active'").
@@ -939,7 +964,7 @@ func TestBidderStore_GetCapabilities_MultipleFormats(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	})
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE enabled = true AND status = 'active'").
@@ -979,12 +1004,12 @@ func TestBidderStore_GetCapabilities_AllFormats(t *testing.T) {
 		"id", "bidder_code", "bidder_name", "endpoint_url", "timeout_ms",
 		"enabled", "status", "supports_banner", "supports_video", "supports_native", "supports_audio",
 		"gvl_vendor_id", "http_headers", "description", "documentation_url", "contact_email",
-		"created_at", "updated_at",
+		"version", "created_at", "updated_at",
 	}).AddRow(
 		bidder.ID, bidder.BidderCode, bidder.BidderName, bidder.EndpointURL, bidder.TimeoutMs,
 		bidder.Enabled, bidder.Status, bidder.SupportsBanner, bidder.SupportsVideo, bidder.SupportsNative, bidder.SupportsAudio,
 		bidder.GVLVendorID, httpHeadersJSON, bidder.Description, bidder.DocumentationURL, bidder.ContactEmail,
-		bidder.CreatedAt, bidder.UpdatedAt,
+		1, bidder.CreatedAt, bidder.UpdatedAt,
 	)
 
 	mock.ExpectQuery("SELECT (.+) FROM bidders WHERE enabled = true AND status = 'active'").

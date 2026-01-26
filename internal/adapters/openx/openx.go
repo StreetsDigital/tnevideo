@@ -8,6 +8,7 @@ import (
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://rtb.openx.net/openrtb/prebid"
@@ -87,6 +88,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("openx", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register openx adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "openx").Msg("failed to register adapter")
 	}
 }

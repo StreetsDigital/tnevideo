@@ -1,137 +1,164 @@
 package fpd
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
 )
 
-// ============================================================================
-// FPD PROCESSING BENCHMARKS
-// ============================================================================
-
-// BenchmarkProcessor_ProcessRequest_Simple benchmarks basic FPD processing
-func BenchmarkProcessor_ProcessRequest_Simple(b *testing.B) {
-	config := &Config{
-		Enabled: true,
+// BenchmarkBidderConfigMarshal compares old vs new approach
+func BenchmarkBidderConfigMarshal(b *testing.B) {
+	// Setup: Create a typical bidder config
+	siteFPD := &SiteFPD{
+		Name:   "example.com",
+		Domain: "example.com",
+		Cat:    []string{"IAB1", "IAB2"},
+		Page:   "https://example.com/page",
 	}
-	proc := NewProcessor(config)
+	
+	appFPD := &AppFPD{
+		Name:   "ExampleApp",
+		Bundle: "com.example.app",
+		Cat:    []string{"IAB1"},
+	}
+	
+	userFPD := &UserFPD{
+		YOB:    1990,
+		Gender: "M",
+	}
 
-	req := &openrtb.BidRequest{
-		ID: "test-req",
-		Site: &openrtb.Site{
-			ID:     "site1",
-			Domain: "example.com",
+	config := BidderConfig{
+		Bidders: []string{"*"},
+		Config: &FPDConfig{
+			ORTB2: &ORTB2Config{
+				Site: siteFPD,
+				App:  appFPD,
+				User: userFPD,
+			},
 		},
+	}
+
+	configs := []BidderConfig{config}
+	bidders := []string{"bidder1", "bidder2", "bidder3", "bidder4", "bidder5"}
+
+	b.Run("OldApproach_MarshalPerBidder", func(b *testing.B) {
+		p := NewProcessor(DefaultConfig())
+		base := &ResolvedFPD{Imp: make(map[string]json.RawMessage)}
+		
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			for _, bidder := range bidders {
+				// Old approach: marshal per bidder (3 marshals per bidder)
+				_ = p.applyBidderConfig(base, bidder, configs)
+			}
+		}
+	})
+
+	b.Run("NewApproach_PreMarshal", func(b *testing.B) {
+		p := NewProcessor(DefaultConfig())
+		base := &ResolvedFPD{Imp: make(map[string]json.RawMessage)}
+		
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Pre-marshal once
+			cached := PrepareBidderConfigs(configs)
+			for _, bidder := range bidders {
+				// New approach: use pre-marshaled (0 marshals per bidder)
+				_ = p.applyBidderConfigCached(base, bidder, cached)
+			}
+		}
+	})
+}
+
+// BenchmarkProcessRequestWithBidderConfig tests full request processing
+func BenchmarkProcessRequestWithBidderConfig(b *testing.B) {
+	p := NewProcessor(&Config{
+		Enabled:             true,
+		BidderConfigEnabled: true,
+		SiteEnabled:         true,
+		UserEnabled:         true,
+	})
+
+	// Create a request with bidder config
+	req := &openrtb.BidRequest{
+		ID: "test-request",
 		Imp: []openrtb.Imp{
 			{ID: "imp1"},
 		},
-	}
-
-	bidders := []string{"rubicon", "appnexus", "pubmatic"}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = proc.ProcessRequest(req, bidders)
-	}
-}
-
-// BenchmarkProcessor_ProcessRequest_WithFPD benchmarks FPD processing with actual FPD data
-func BenchmarkProcessor_ProcessRequest_WithFPD(b *testing.B) {
-	config := &Config{
-		Enabled: true,
-	}
-	proc := NewProcessor(config)
-
-	req := &openrtb.BidRequest{
-		ID: "test-req",
 		Site: &openrtb.Site{
-			ID:     "site1",
 			Domain: "example.com",
 		},
-		Imp: []openrtb.Imp{
-			{ID: "imp1"},
+		User: &openrtb.User{
+			ID: "user123",
 		},
 	}
 
-	bidders := []string{"rubicon", "appnexus", "pubmatic", "openx"}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = proc.ProcessRequest(req, bidders)
-	}
-}
-
-// BenchmarkProcessor_ProcessRequest_MultipleBidders benchmarks FPD with many bidders
-func BenchmarkProcessor_ProcessRequest_MultipleBidders(b *testing.B) {
-	config := &Config{
-		Enabled: true,
-	}
-	proc := NewProcessor(config)
-
-	req := &openrtb.BidRequest{
-		ID: "test-req",
-		Site: &openrtb.Site{
-			ID:     "site1",
-			Domain: "example.com",
-		},
-		Imp: []openrtb.Imp{
-			{ID: "imp1"},
+	// Add bidder config
+	bidderConfig := []BidderConfig{
+		{
+			Bidders: []string{"*"},
+			Config: &FPDConfig{
+				ORTB2: &ORTB2Config{
+					Site: &SiteFPD{
+						Name:   "Example Site",
+						Cat:    []string{"IAB1", "IAB2"},
+						Domain: "example.com",
+					},
+					User: &UserFPD{
+						YOB:    1990,
+						Gender: "M",
+					},
+				},
+			},
 		},
 	}
 
-	bidders := []string{
-		"rubicon", "appnexus", "pubmatic", "openx", "ix",
-		"sovrn", "smartadserver", "mediagrid", "triplelift", "criteo",
-	}
+	ext, _ := json.Marshal(map[string]interface{}{
+		"prebid": map[string]interface{}{
+			"bidderconfig": bidderConfig,
+		},
+	})
+	req.Ext = ext
+
+	bidders := []string{"bidder1", "bidder2", "bidder3", "bidder4", "bidder5"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.ProcessRequest(req, bidders)
+		_, _ = p.ProcessRequest(req, bidders)
 	}
 }
 
-// BenchmarkProcessor_ProcessRequest_Disabled benchmarks overhead when FPD is disabled
-func BenchmarkProcessor_ProcessRequest_Disabled(b *testing.B) {
-	config := &Config{
-		Enabled: false,
+// BenchmarkPrepareBidderConfigs tests the preparation overhead
+func BenchmarkPrepareBidderConfigs(b *testing.B) {
+	configs := []BidderConfig{
+		{
+			Bidders: []string{"bidder1", "bidder2", "bidder3"},
+			Config: &FPDConfig{
+				ORTB2: &ORTB2Config{
+					Site: &SiteFPD{
+						Name:   "Site1",
+						Domain: "example1.com",
+						Cat:    []string{"IAB1"},
+					},
+				},
+			},
+		},
+		{
+			Bidders: []string{"bidder4", "bidder5"},
+			Config: &FPDConfig{
+				ORTB2: &ORTB2Config{
+					User: &UserFPD{
+						YOB:    1990,
+						Gender: "M",
+					},
+				},
+			},
+		},
 	}
-	proc := NewProcessor(config)
-
-	req := &openrtb.BidRequest{
-		ID:   "test-req",
-		Site: &openrtb.Site{ID: "site1"},
-		Imp:  []openrtb.Imp{{ID: "imp1"}},
-	}
-
-	bidders := []string{"rubicon", "appnexus"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.ProcessRequest(req, bidders)
-	}
-}
-
-// BenchmarkProcessor_UpdateConfig benchmarks atomic config updates
-func BenchmarkProcessor_UpdateConfig(b *testing.B) {
-	proc := NewProcessor(DefaultConfig())
-
-	newConfig := &Config{
-		Enabled: true,
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		proc.UpdateConfig(newConfig)
-	}
-}
-
-// BenchmarkProcessor_GetConfig benchmarks atomic config reads
-func BenchmarkProcessor_GetConfig(b *testing.B) {
-	proc := NewProcessor(DefaultConfig())
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = proc.getConfig()
+		_ = PrepareBidderConfigs(configs)
 	}
 }

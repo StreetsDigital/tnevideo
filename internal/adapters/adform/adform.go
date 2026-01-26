@@ -3,11 +3,11 @@ package adform
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://adx.adform.net/adx/openrtb"
@@ -60,6 +60,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("adform", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register adform adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "adform").Msg("failed to register adapter")
 	}
 }

@@ -442,3 +442,121 @@ func TestOptOutHandler_DomainWithPort(t *testing.T) {
 		t.Error("Expected domain without port in cookie")
 	}
 }
+
+// GDPR FIX: Tests for consent validation
+
+func TestSetUIDHandler_GDPR_NoConsent(t *testing.T) {
+	// When GDPR=1 but no consent string, should return pixel without storing UID
+	handler := NewSetUIDHandler([]string{"appnexus"})
+
+	req := httptest.NewRequest("GET", "/setuid?bidder=appnexus&uid=testuid&gdpr=1", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	// Should return tracking pixel
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "image/gif" {
+		t.Errorf("expected Content-Type image/gif, got %s", contentType)
+	}
+
+	// Check that no cookie was set (UID was not stored)
+	result := w.Result()
+	defer result.Body.Close()
+	cookies := result.Cookies()
+	// With no consent, the cookie should be empty or not contain the UID
+	for _, cookie := range cookies {
+		if cookie.Name == "uids" && strings.Contains(cookie.Value, "testuid") {
+			t.Error("UID should not be stored when GDPR consent is missing")
+		}
+	}
+}
+
+func TestSetUIDHandler_GDPR_InvalidConsent(t *testing.T) {
+	// When GDPR=1 but invalid consent string, should return pixel without storing UID
+	handler := NewSetUIDHandler([]string{"appnexus"})
+
+	req := httptest.NewRequest("GET", "/setuid?bidder=appnexus&uid=testuid&gdpr=1&gdpr_consent=short", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	// Should return tracking pixel
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "image/gif" {
+		t.Errorf("expected Content-Type image/gif, got %s", contentType)
+	}
+}
+
+func TestSetUIDHandler_GDPR_ValidConsent(t *testing.T) {
+	// When GDPR=1 with valid consent, should store UID normally
+	handler := NewSetUIDHandler([]string{"appnexus"})
+
+	validConsent := "CPXxRfAPXxRfAAfKABENB-CgAAAAAAAAAAYgAAAAAAAA"
+	req := httptest.NewRequest("GET", "/setuid?bidder=appnexus&uid=testuid&gdpr=1&gdpr_consent="+validConsent, nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	// Should return tracking pixel
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "image/gif" {
+		t.Errorf("expected Content-Type image/gif, got %s", contentType)
+	}
+
+	// Cookie should be set
+	result := w.Result()
+	defer result.Body.Close()
+	cookies := result.Cookies()
+	found := false
+	for _, cookie := range cookies {
+		if cookie.Name == "uids" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected uids cookie to be set with valid consent")
+	}
+}
+
+func TestSetUIDHandler_NoGDPR_Works(t *testing.T) {
+	// When GDPR=0, should store UID normally
+	handler := NewSetUIDHandler([]string{"appnexus"})
+
+	req := httptest.NewRequest("GET", "/setuid?bidder=appnexus&uid=testuid&gdpr=0", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	// Cookie should be set
+	result := w.Result()
+	defer result.Body.Close()
+	cookies := result.Cookies()
+	found := false
+	for _, cookie := range cookies {
+		if cookie.Name == "uids" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected uids cookie to be set when GDPR=0")
+	}
+}

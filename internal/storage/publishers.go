@@ -20,6 +20,7 @@ type Publisher struct {
 	BidderParams   map[string]interface{} `json:"bidder_params"`
 	BidMultiplier  float64                `json:"bid_multiplier"` // Revenue share multiplier (1.0000-10.0000). Bid divided by this. 1.05 = ~5% platform cut
 	Status         string                 `json:"status"`
+	Version        int                    `json:"version"`
 	CreatedAt      time.Time              `json:"created_at"`
 	UpdatedAt      time.Time              `json:"updated_at"`
 	Notes          string                 `json:"notes,omitempty"`
@@ -67,9 +68,12 @@ func (s *PublisherStore) GetByPublisherID(ctx context.Context, publisherID strin
 
 // getByPublisherIDConcrete is the internal implementation returning concrete type
 func (s *PublisherStore) getByPublisherIDConcrete(ctx context.Context, publisherID string) (*Publisher, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, publisher_id, name, allowed_domains, bidder_params, bid_multiplier,
-		       status, created_at, updated_at, notes, contact_email
+		       status, version, created_at, updated_at, notes, contact_email
 		FROM publishers
 		WHERE publisher_id = $1 AND status = 'active'
 	`
@@ -85,6 +89,7 @@ func (s *PublisherStore) getByPublisherIDConcrete(ctx context.Context, publisher
 		&bidderParamsJSON,
 		&p.BidMultiplier,
 		&p.Status,
+		&p.Version,
 		&p.CreatedAt,
 		&p.UpdatedAt,
 		&p.Notes,
@@ -110,9 +115,12 @@ func (s *PublisherStore) getByPublisherIDConcrete(ctx context.Context, publisher
 
 // List retrieves all active publishers
 func (s *PublisherStore) List(ctx context.Context) ([]*Publisher, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT id, publisher_id, name, allowed_domains, bidder_params, bid_multiplier,
-		       status, created_at, updated_at, notes, contact_email
+		       status, version, created_at, updated_at, notes, contact_email
 		FROM publishers
 		WHERE status = 'active'
 		ORDER BY publisher_id
@@ -137,6 +145,7 @@ func (s *PublisherStore) List(ctx context.Context) ([]*Publisher, error) {
 			&bidderParamsJSON,
 			&p.BidMultiplier,
 			&p.Status,
+			&p.Version,
 			&p.CreatedAt,
 			&p.UpdatedAt,
 			&p.Notes,
@@ -161,6 +170,9 @@ func (s *PublisherStore) List(ctx context.Context) ([]*Publisher, error) {
 
 // Create adds a new publisher
 func (s *PublisherStore) Create(ctx context.Context, p *Publisher) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	// Default to 1.0 (no adjustment) if not set
 	if p.BidMultiplier == 0 {
 		p.BidMultiplier = 1.0
@@ -176,7 +188,7 @@ func (s *PublisherStore) Create(ctx context.Context, p *Publisher) error {
 		INSERT INTO publishers (
 			publisher_id, name, allowed_domains, bidder_params, bid_multiplier, status, notes, contact_email
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at, updated_at
+		RETURNING id, version, created_at, updated_at
 	`
 
 	bidderParamsJSON, err := json.Marshal(p.BidderParams)
@@ -193,7 +205,7 @@ func (s *PublisherStore) Create(ctx context.Context, p *Publisher) error {
 		status,
 		p.Notes,
 		p.ContactEmail,
-	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create publisher: %w", err)
@@ -202,13 +214,38 @@ func (s *PublisherStore) Create(ctx context.Context, p *Publisher) error {
 	return nil
 }
 
-// Update modifies an existing publisher
+// Update modifies an existing publisher using optimistic locking
 func (s *PublisherStore) Update(ctx context.Context, p *Publisher) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
+	// Begin transaction for optimistic locking
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Check current version
+	var currentVersion int
+	err = tx.QueryRowContext(ctx, "SELECT version FROM publishers WHERE publisher_id = $1", p.PublisherID).Scan(&currentVersion)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("publisher not found: %s", p.PublisherID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to check version: %w", err)
+	}
+
+	// Verify version matches (optimistic lock check)
+	if currentVersion != p.Version {
+		return fmt.Errorf("concurrent modification detected: publisher %s was updated by another process", p.PublisherID)
+	}
+
 	query := `
 		UPDATE publishers
 		SET name = $1, allowed_domains = $2, bidder_params = $3,
 		    bid_multiplier = $4, status = $5, notes = $6, contact_email = $7
-		WHERE publisher_id = $8
+		WHERE publisher_id = $8 AND version = $9
 	`
 
 	bidderParamsJSON, err := json.Marshal(p.BidderParams)
@@ -216,7 +253,7 @@ func (s *PublisherStore) Update(ctx context.Context, p *Publisher) error {
 		return fmt.Errorf("failed to marshal bidder_params: %w", err)
 	}
 
-	result, err := s.db.ExecContext(ctx, query,
+	result, err := tx.ExecContext(ctx, query,
 		p.Name,
 		p.AllowedDomains,
 		bidderParamsJSON,
@@ -225,6 +262,7 @@ func (s *PublisherStore) Update(ctx context.Context, p *Publisher) error {
 		p.Notes,
 		p.ContactEmail,
 		p.PublisherID,
+		p.Version,
 	)
 
 	if err != nil {
@@ -237,14 +275,25 @@ func (s *PublisherStore) Update(ctx context.Context, p *Publisher) error {
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("publisher not found: %s", p.PublisherID)
+		return fmt.Errorf("concurrent modification detected: publisher %s version mismatch", p.PublisherID)
 	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Update version in the struct for caller
+	p.Version = currentVersion + 1
 
 	return nil
 }
 
 // Delete soft-deletes a publisher by setting status to 'archived'
 func (s *PublisherStore) Delete(ctx context.Context, publisherID string) error {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		UPDATE publishers
 		SET status = 'archived'
@@ -270,6 +319,9 @@ func (s *PublisherStore) Delete(ctx context.Context, publisherID string) error {
 
 // GetBidderParams retrieves bidder parameters for a specific bidder
 func (s *PublisherStore) GetBidderParams(ctx context.Context, publisherID, bidderCode string) (map[string]interface{}, error) {
+	ctx, cancel := withTimeout(ctx, DefaultDBTimeout)
+	defer cancel()
+
 	query := `
 		SELECT bidder_params->$2 as params
 		FROM publishers
@@ -309,7 +361,8 @@ func (s *PublisherStore) GetBidderParams(ctx context.Context, publisherID, bidde
 }
 
 // NewDBConnection creates a new database connection
-func NewDBConnection(host, port, user, password, dbname, sslmode string) (*sql.DB, error) {
+// The caller should pass a context with appropriate timeout for connection establishment
+func NewDBConnection(ctx context.Context, host, port, user, password, dbname, sslmode string) (*sql.DB, error) {
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		host, port, user, password, dbname, sslmode)
 
@@ -323,10 +376,7 @@ func NewDBConnection(host, port, user, password, dbname, sslmode string) (*sql.D
 	db.SetMaxIdleConns(25)  // Keep more idle connections ready
 	db.SetConnMaxLifetime(10 * time.Minute)
 
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
+	// Test connection using provided context
 	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}

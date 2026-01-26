@@ -3,11 +3,11 @@ package improvedigital
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://pbs.360yield.com/openrtb/bid"
@@ -61,6 +61,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("improvedigital", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register improvedigital adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "improvedigital").Msg("failed to register adapter")
 	}
 }

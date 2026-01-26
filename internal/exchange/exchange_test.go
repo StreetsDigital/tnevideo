@@ -45,7 +45,9 @@ func (m *mockAdapter) MakeBids(internalRequest *openrtb.BidRequest, response *ad
 		return nil, []error{m.bidsErr}
 	}
 	return &adapters.BidderResponse{
-		Bids: m.bids,
+		Bids:       m.bids,
+		ResponseID: internalRequest.ID, // Echo the request ID per OpenRTB spec
+		Currency:   "USD",
 	}, nil
 }
 
@@ -408,6 +410,16 @@ func TestBidValidation(t *testing.T) {
 		MinBidPrice:     0.01,
 	})
 
+	bidRequest := &openrtb.BidRequest{
+		ID: "test-request",
+		Imp: []openrtb.Imp{
+			{ID: "imp1", Banner: &openrtb.Banner{W: 300, H: 250, Format: []openrtb.Format{{W: 300, H: 250}}}},
+			{ID: "imp2", Banner: &openrtb.Banner{W: 728, H: 90}},
+		},
+		BAdv: []string{"blocked-domain.com"},
+	}
+
+	impMap := adapters.BuildImpMap(bidRequest.Imp)
 	impFloors := map[string]float64{
 		"imp1": 1.00,
 		"imp2": 0.50,
@@ -496,7 +508,56 @@ func TestBidValidation(t *testing.T) {
 		},
 		{
 			name:       "valid bid with nurl only",
-			bid:        &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, NURL: "http://example.com/win"},
+			bid:        &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, NURL: "https://example.com/win"},
+			bidderCode: "test-bidder",
+			wantErr:    false,
+		},
+		// NEW: NURL validation tests
+		{
+			name:        "invalid nurl - not https",
+			bid:         &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, NURL: "http://example.com/win"},
+			bidderCode:  "test-bidder",
+			wantErr:     true,
+			errContains: "must use HTTPS",
+		},
+		{
+			name:        "invalid nurl - malformed",
+			bid:         &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, NURL: "not-a-url"},
+			bidderCode:  "test-bidder",
+			wantErr:     true,
+			errContains: "invalid nurl",
+		},
+		// NEW: ADomain validation tests
+		{
+			name:        "blocked advertiser domain",
+			bid:         &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, AdM: "<div>ad</div>", ADomain: []string{"blocked-domain.com"}},
+			bidderCode:  "test-bidder",
+			wantErr:     true,
+			errContains: "blocked advertiser domain",
+		},
+		{
+			name:       "allowed advertiser domain",
+			bid:        &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, AdM: "<div>ad</div>", ADomain: []string{"allowed-domain.com"}},
+			bidderCode: "test-bidder",
+			wantErr:    false,
+		},
+		// NEW: Banner dimension validation tests
+		{
+			name:       "valid banner dimensions matching format",
+			bid:        &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, AdM: "<div>ad</div>", W: 300, H: 250},
+			bidderCode: "test-bidder",
+			wantErr:    false,
+		},
+		{
+			name:        "invalid banner dimensions",
+			bid:         &openrtb.Bid{ID: "bid1", ImpID: "imp1", Price: 2.00, AdM: "<div>ad</div>", W: 999, H: 999},
+			bidderCode:  "test-bidder",
+			wantErr:     true,
+			errContains: "do not match any allowed banner formats",
+		},
+		{
+			name:       "valid banner dimensions for imp2",
+			bid:        &openrtb.Bid{ID: "bid2", ImpID: "imp2", Price: 1.00, AdM: "<div>ad</div>", W: 728, H: 90},
 			bidderCode: "test-bidder",
 			wantErr:    false,
 		},
@@ -504,7 +565,7 @@ func TestBidValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ex.validateBid(tt.bid, tt.bidderCode, impFloors)
+			err := ex.validateBid(tt.bid, tt.bidderCode, bidRequest, impMap, impFloors)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")

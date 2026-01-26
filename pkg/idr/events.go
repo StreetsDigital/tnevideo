@@ -184,7 +184,9 @@ func (r *EventRecorder) RecordBidResponse(
 	shouldFlush := len(r.buffer) >= r.bufferSize
 	var eventsToFlush []BidEvent
 	if shouldFlush {
-		eventsToFlush = r.buffer
+		// Copy buffer before unlock to prevent memory corruption
+		eventsToFlush = make([]BidEvent, len(r.buffer))
+		copy(eventsToFlush, r.buffer)
 		r.buffer = make([]BidEvent, 0, r.bufferSize)
 	}
 	r.mu.Unlock()
@@ -235,7 +237,9 @@ func (r *EventRecorder) RecordWin(
 	shouldFlush := len(r.buffer) >= r.bufferSize
 	var eventsToFlush []BidEvent
 	if shouldFlush {
-		eventsToFlush = r.buffer
+		// Copy buffer before unlock to prevent memory corruption
+		eventsToFlush = make([]BidEvent, len(r.buffer))
+		copy(eventsToFlush, r.buffer)
 		r.buffer = make([]BidEvent, 0, r.bufferSize)
 	}
 	r.mu.Unlock()

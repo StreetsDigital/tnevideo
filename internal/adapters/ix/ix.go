@@ -8,6 +8,7 @@ import (
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://htlb.casalemedia.com/openrtb/pbjs"
@@ -87,6 +88,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("ix", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register ix adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "ix").Msg("failed to register adapter")
 	}
 }

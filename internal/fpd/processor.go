@@ -56,6 +56,12 @@ func (p *Processor) ProcessRequest(req *openrtb.BidRequest, bidders []string) (B
 		}
 	}
 
+	// Pre-marshal bidder configs once to avoid repeated marshaling per bidder
+	var cachedBidderConfigs []BidderConfigCached
+	if config.BidderConfigEnabled && prebidExt != nil && len(prebidExt.BidderConfig) > 0 {
+		cachedBidderConfigs = PrepareBidderConfigs(prebidExt.BidderConfig)
+	}
+
 	// Extract base FPD from the request
 	baseFPD := p.extractBaseFPD(req, config)
 
@@ -68,9 +74,9 @@ func (p *Processor) ProcessRequest(req *openrtb.BidRequest, bidders []string) (B
 	for _, bidder := range bidders {
 		bidderFPD := p.cloneFPD(baseFPD)
 
-		// Apply bidder-specific config if enabled
-		if config.BidderConfigEnabled && prebidExt != nil {
-			bidderFPD = p.applyBidderConfig(bidderFPD, bidder, prebidExt.BidderConfig)
+		// Apply bidder-specific config if enabled (using cached pre-marshaled configs)
+		if config.BidderConfigEnabled && len(cachedBidderConfigs) > 0 {
+			bidderFPD = p.applyBidderConfigCached(bidderFPD, bidder, cachedBidderConfigs)
 		}
 
 		result[bidder] = bidderFPD
@@ -323,4 +329,82 @@ func (p *Processor) UpdateConfig(config *Config) {
 	if config != nil {
 		p.config.Store(config)
 	}
+}
+
+// Performance optimization: Pre-marshal bidder configs
+
+// BidderConfigCached extends BidderConfig with pre-marshaled JSON to avoid
+// repeated marshaling in hot paths
+type BidderConfigCached struct {
+	BidderConfig
+	// Pre-marshaled JSON for O(1) access instead of marshal per bidder
+	SiteJSON json.RawMessage
+	AppJSON  json.RawMessage
+	UserJSON json.RawMessage
+}
+
+// PrepareBidderConfigs pre-marshals ORTB2 configs to optimize hot path performance
+// This should be called once when parsing the request, not per-bidder
+func PrepareBidderConfigs(configs []BidderConfig) []BidderConfigCached {
+	if len(configs) == 0 {
+		return nil
+	}
+
+	cached := make([]BidderConfigCached, 0, len(configs))
+	for _, config := range configs {
+		c := BidderConfigCached{
+			BidderConfig: config,
+		}
+
+		// Pre-marshal ORTB2 configs
+		if config.Config != nil && config.Config.ORTB2 != nil {
+			ortb2 := config.Config.ORTB2
+			
+			if ortb2.Site != nil {
+				if siteJSON, err := json.Marshal(ortb2.Site); err == nil {
+					c.SiteJSON = siteJSON
+				}
+			}
+			if ortb2.App != nil {
+				if appJSON, err := json.Marshal(ortb2.App); err == nil {
+					c.AppJSON = appJSON
+				}
+			}
+			if ortb2.User != nil {
+				if userJSON, err := json.Marshal(ortb2.User); err == nil {
+					c.UserJSON = userJSON
+				}
+			}
+		}
+
+		cached = append(cached, c)
+	}
+
+	return cached
+}
+
+// applyBidderConfigCached applies pre-marshaled bidder-specific FPD
+// This is the optimized version that avoids repeated JSON marshaling
+func (p *Processor) applyBidderConfigCached(base *ResolvedFPD, bidder string, configs []BidderConfigCached) *ResolvedFPD {
+	result := p.cloneFPD(base)
+
+	for _, config := range configs {
+		// Check if this config applies to this bidder
+		if !p.bidderMatches(bidder, config.Bidders) {
+			continue
+		}
+
+		// Apply pre-marshaled configs (no marshal needed!)
+		if config.SiteJSON != nil {
+			result.Site = p.mergeJSON(result.Site, config.SiteJSON)
+		}
+		if config.AppJSON != nil {
+			result.App = p.mergeJSON(result.App, config.AppJSON)
+		}
+		if config.UserJSON != nil {
+			result.User = p.mergeJSON(result.User, config.UserJSON)
+		}
+	}
+
+	return result
 }

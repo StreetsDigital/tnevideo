@@ -35,6 +35,24 @@ func (h *SetUIDHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	bidder := query.Get("bidder")
 	uid := query.Get("uid")
+	gdpr := query.Get("gdpr")
+	gdprConsent := query.Get("gdpr_consent")
+
+	// GDPR FIX: Validate GDPR consent before storing UIDs
+	// If GDPR=1 but no valid consent, do not store the UID
+	if gdpr == "1" {
+		if gdprConsent == "" {
+			logger.Log.Warn().Str("bidder", bidder).Msg("GDPR consent required but not provided for setuid")
+			h.respondWithPixel(w)
+			return
+		}
+		// Validate consent string format (minimum length for TCF v2)
+		if len(gdprConsent) < 20 {
+			logger.Log.Warn().Str("bidder", bidder).Msg("Invalid GDPR consent string for setuid")
+			h.respondWithPixel(w)
+			return
+		}
+	}
 
 	// Validate bidder
 	if bidder == "" {

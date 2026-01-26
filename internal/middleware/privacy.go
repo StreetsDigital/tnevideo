@@ -229,6 +229,21 @@ func (m *PrivacyMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if requestModified {
 		r.ContentLength = int64(len(body))
 	}
+
+	// GDPR FIX: Set privacy context for downstream handlers
+	gdprApplies := m.isGDPRApplicable(&bidRequest)
+	gdprConsented := true // If we got here, consent was validated (or GDPR doesn't apply)
+	ccpaOptOut := false
+	consentString := ""
+	if bidRequest.User != nil {
+		consentString = bidRequest.User.Consent
+	}
+	if bidRequest.Regs != nil && len(bidRequest.Regs.USPrivacy) >= 3 {
+		ccpaOptOut = bidRequest.Regs.USPrivacy[2] == 'Y'
+	}
+	ctx := SetPrivacyContext(r.Context(), gdprApplies, gdprConsented, ccpaOptOut, consentString)
+	r = r.WithContext(ctx)
+
 	m.next.ServeHTTP(w, r)
 }
 
@@ -453,8 +468,9 @@ type TCFv2Data struct {
 	VendorConsents    map[int]bool
 }
 
-// parseTCFv2String parses a TCF v2 consent string and extracts purpose consents
-func (m *PrivacyMiddleware) parseTCFv2String(consent string) (*TCFv2Data, error) {
+// parseTCFv2StringStatic is a standalone function for parsing TCF v2 consent strings
+// This avoids creating temporary middleware objects and improves performance
+func parseTCFv2StringStatic(consent string) (*TCFv2Data, error) {
 	if consent == "" {
 		return nil, nil
 	}
@@ -584,6 +600,12 @@ func (m *PrivacyMiddleware) parseTCFv2String(consent string) (*TCFv2Data, error)
 	return data, nil
 }
 
+// parseTCFv2String parses a TCF v2 consent string and extracts purpose consents
+// This method delegates to the standalone function to avoid code duplication
+func (m *PrivacyMiddleware) parseTCFv2String(consent string) (*TCFv2Data, error) {
+	return parseTCFv2StringStatic(consent)
+}
+
 // checkPurposeConsents verifies required purposes have consent
 func (m *PrivacyMiddleware) checkPurposeConsents(data *TCFv2Data, required []int) []int {
 	if data == nil {
@@ -670,14 +692,14 @@ func (m *PrivacyMiddleware) CheckVendorConsents(consentString string, gvlIDs []i
 
 // CheckVendorConsentStatic is a standalone function that can be called without a middleware instance
 // This is useful for the exchange to check vendor consents during auction
+// Updated to use standalone parsing function instead of creating temporary middleware object
 func CheckVendorConsentStatic(consentString string, gvlID int) bool {
 	if consentString == "" || gvlID <= 0 {
 		return false
 	}
 
-	// Create a temporary middleware to use its parsing logic
-	m := &PrivacyMiddleware{}
-	tcfData, err := m.parseTCFv2String(consentString)
+	// Use standalone parsing function to avoid creating temporary objects
+	tcfData, err := parseTCFv2StringStatic(consentString)
 	if err != nil {
 		return false
 	}
@@ -1002,7 +1024,6 @@ func (m *PrivacyMiddleware) anonymizeRequestIPs(req *openrtb.BidRequest) {
 		req.Device.IP = AnonymizeIP(originalIP)
 		logger.Log.Debug().
 			Str("request_id", req.ID).
-			Str("original_ip", originalIP).
 			Str("anonymized_ip", req.Device.IP).
 			Msg("P2-2: Anonymized IPv4 for GDPR compliance")
 	}
@@ -1012,7 +1033,6 @@ func (m *PrivacyMiddleware) anonymizeRequestIPs(req *openrtb.BidRequest) {
 		req.Device.IPv6 = AnonymizeIP(originalIPv6)
 		logger.Log.Debug().
 			Str("request_id", req.ID).
-			Str("original_ipv6", originalIPv6).
 			Str("anonymized_ipv6", req.Device.IPv6).
 			Msg("P2-2: Anonymized IPv6 for GDPR compliance")
 	}
@@ -1036,7 +1056,6 @@ func (m *PrivacyMiddleware) anonymizeRawRequestIPs(rawRequest map[string]interfa
 			modified = true
 			logger.Log.Debug().
 				Str("request_id", req.ID).
-				Str("original_ip", ipStr).
 				Str("anonymized_ip", anonymized).
 				Msg("P2-2: Anonymized IPv4 for GDPR compliance")
 		}
@@ -1050,7 +1069,6 @@ func (m *PrivacyMiddleware) anonymizeRawRequestIPs(rawRequest map[string]interfa
 			modified = true
 			logger.Log.Debug().
 				Str("request_id", req.ID).
-				Str("original_ipv6", ipv6Str).
 				Str("anonymized_ipv6", anonymized).
 				Msg("P2-2: Anonymized IPv6 for GDPR compliance")
 		}

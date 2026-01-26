@@ -1,0 +1,23 @@
+{
+  "id": "test-auction-001",
+  "imp": [{
+    "id": "1",
+    "video": {
+      "mimes": ["video/mp4"],
+      "minduration": 5,
+      "maxduration": 30,
+      "protocols": [2, 3, 5, 6],
+      "w": 640,
+      "h": 480
+    },
+    "bidfloor": 1.0
+  }],
+  "site": {
+    "page": "http://example.com/test",
+    "domain": "example.com"
+  },
+  "device": {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "ip": "192.168.1.1"
+  }
+}

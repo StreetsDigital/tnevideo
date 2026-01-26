@@ -30,7 +30,7 @@ func createTestMetrics() *Metrics {
 				Name:      "http_requests_total",
 				Help:      "Total number of HTTP requests",
 			},
-			[]string{"method", "path", "status"},
+			[]string{"method", "route", "status"},
 		),
 		RequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -39,7 +39,7 @@ func createTestMetrics() *Metrics {
 				Help:      "HTTP request duration in seconds",
 				Buckets:   []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
 			},
-			[]string{"method", "path"},
+			[]string{"method", "route"},
 		),
 		RequestsInFlight: prometheus.NewGauge(
 			prometheus.GaugeOpts{
@@ -68,7 +68,7 @@ func createTestMetrics() *Metrics {
 				Name:      "revenue_total",
 				Help:      "Total revenue from bids",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		PublisherPayoutTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -76,7 +76,7 @@ func createTestMetrics() *Metrics {
 				Name:      "publisher_payout_total",
 				Help:      "Total payout to publishers",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		PlatformMarginTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -84,7 +84,7 @@ func createTestMetrics() *Metrics {
 				Name:      "platform_margin_total",
 				Help:      "Total platform margin",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		MarginPercentage: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -93,7 +93,7 @@ func createTestMetrics() *Metrics {
 				Help:      "Margin percentage distribution",
 				Buckets:   []float64{0, 5, 10, 15, 20, 25, 30, 40, 50},
 			},
-			[]string{"publisher"},
+			[]string{},
 		),
 		FloorAdjustments: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -101,7 +101,7 @@ func createTestMetrics() *Metrics {
 				Name:      "floor_adjustments_total",
 				Help:      "Total floor adjustments",
 			},
-			[]string{"publisher"},
+			[]string{},
 		),
 	}
 
@@ -134,17 +134,18 @@ func TestIncAuthFailures(t *testing.T) {
 
 func TestRecordMargin(t *testing.T) {
 	m := testMetrics
-	
+
 	publisher := "pub123"
 	bidder := "appnexus"
 	mediaType := "banner"
 	originalPrice := 2.50
 	adjustedPrice := 2.00
 	platformCut := 0.50
-	
+
 	m.RecordMargin(publisher, bidder, mediaType, originalPrice, adjustedPrice, platformCut)
-	
-	revenueValue := testutil.ToFloat64(m.RevenueTotal.WithLabelValues(publisher, bidder, mediaType))
+
+	// Note: publisher label removed to prevent cardinality explosion
+	revenueValue := testutil.ToFloat64(m.RevenueTotal.WithLabelValues(bidder, mediaType))
 	if revenueValue < originalPrice {
 		t.Errorf("Expected revenue to include %f, got %f", originalPrice, revenueValue)
 	}
@@ -160,13 +161,14 @@ func TestRecordMargin_ZeroPrice(t *testing.T) {
 
 func TestRecordFloorAdjustment(t *testing.T) {
 	m := testMetrics
-	
+
 	publisher := "pub_test"
-	initialValue := testutil.ToFloat64(m.FloorAdjustments.WithLabelValues(publisher))
-	
+	// Note: publisher label removed to prevent cardinality explosion
+	initialValue := testutil.ToFloat64(m.FloorAdjustments.WithLabelValues())
+
 	m.RecordFloorAdjustment(publisher)
-	
-	newValue := testutil.ToFloat64(m.FloorAdjustments.WithLabelValues(publisher))
+
+	newValue := testutil.ToFloat64(m.FloorAdjustments.WithLabelValues())
 	if newValue != initialValue+1 {
 		t.Errorf("Expected floor adjustments to be %f, got %f", initialValue+1, newValue)
 	}
@@ -249,7 +251,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Name:      "http_requests_total",
 				Help:      "Total number of HTTP requests",
 			},
-			[]string{"method", "path", "status"},
+			[]string{"method", "route", "status"},
 		),
 		RequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -258,7 +260,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Help:      "HTTP request duration in seconds",
 				Buckets:   []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
 			},
-			[]string{"method", "path"},
+			[]string{"method", "route"},
 		),
 		RequestsInFlight: prometheus.NewGauge(
 			prometheus.GaugeOpts{
@@ -467,7 +469,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Name:      "revenue_total",
 				Help:      "Total bid revenue in currency units",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		PublisherPayoutTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -475,7 +477,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Name:      "publisher_payout_total",
 				Help:      "Total payout to publishers in currency units",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		PlatformMarginTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -483,7 +485,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Name:      "platform_margin_total",
 				Help:      "Total platform margin/revenue in currency units",
 			},
-			[]string{"publisher", "bidder", "media_type"},
+			[]string{"bidder", "media_type"},
 		),
 		MarginPercentage: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -492,7 +494,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Help:      "Platform margin percentage distribution",
 				Buckets:   []float64{0, 1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50},
 			},
-			[]string{"publisher"},
+			[]string{},
 		),
 		FloorAdjustments: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -500,7 +502,7 @@ func createTestMetricsWithAll(namespace string) *Metrics {
 				Name:      "floor_adjustments_total",
 				Help:      "Number of floor price adjustments applied",
 			},
-			[]string{"publisher"},
+			[]string{},
 		),
 	}
 
@@ -770,6 +772,51 @@ func TestRecordBidderCircuitStateChange(t *testing.T) {
 	halfOpenToClosed := testutil.ToFloat64(m.BidderCircuitStateChanges.WithLabelValues("bidderA", "half-open", "closed"))
 	if halfOpenToClosed != 1 {
 		t.Errorf("Expected 1 half-open->closed transition for bidderA, got %v", halfOpenToClosed)
+	}
+}
+
+func TestNormalizePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		// Known exact paths
+		{"auction endpoint", "/openrtb2/auction", "/openrtb2/auction"},
+		{"amp endpoint", "/openrtb2/amp", "/openrtb2/amp"},
+		{"health check", "/health", "/health"},
+		{"healthz check", "/healthz", "/health"},
+		{"metrics endpoint", "/metrics", "/metrics"},
+		{"status endpoint", "/status", "/status"},
+		{"info endpoint", "/info", "/info"},
+		{"root path", "", "/"},
+
+		// Known prefix patterns
+		{"openrtb2 with id", "/openrtb2/12345", "/openrtb2/*"},
+		{"video endpoint", "/video/12345", "/video/*"},
+		{"vtrack endpoint", "/vtrack/abc123", "/vtrack/*"},
+		{"event endpoint", "/event/click", "/event/*"},
+		{"cookie sync", "/cookie_sync/bidder", "/cookie_sync/*"},
+		{"setuid", "/setuid?bidder=test", "/setuid/*"},
+		{"getuids", "/getuids", "/getuids"},
+
+		// Trailing slashes
+		{"auction with slash", "/openrtb2/auction/", "/openrtb2/auction"},
+		{"health with slash", "/health/", "/health"},
+
+		// Unknown paths
+		{"unknown endpoint", "/unknown/path", "/other"},
+		{"random path", "/foo/bar/baz", "/other"},
+		{"api endpoint", "/api/v1/test", "/other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizePath(tt.path)
+			if result != tt.expected {
+				t.Errorf("normalizePath(%q) = %q, want %q", tt.path, result, tt.expected)
+			}
+		})
 	}
 }
 

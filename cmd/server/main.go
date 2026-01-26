@@ -19,6 +19,11 @@ func main() {
 	logger.Init(logger.DefaultConfig())
 	log := logger.Log
 
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Invalid configuration")
+	}
+
 	// Create server
 	server, err := NewServer(cfg)
 	if err != nil {

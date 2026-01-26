@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
@@ -200,16 +201,94 @@ func (s *PauseAdService) HandlePauseAdRequest(ctx context.Context, req *PauseAdR
 	return resp, nil
 }
 
+// Shutdown gracefully shuts down the pause ad service
+func (s *PauseAdService) Shutdown() {
+	if s.tracker != nil {
+		s.tracker.Shutdown()
+	}
+}
+
 // PauseAdTracker tracks pause ad impressions for frequency capping
 type PauseAdTracker struct {
+	mu          sync.RWMutex
 	impressions map[string][]time.Time
+	stopCleanup chan struct{}
+	cleanupDone chan struct{}
+	shutdown    bool
+	shutdownMu  sync.Mutex
 }
 
 // NewPauseAdTracker creates a new pause ad tracker
 func NewPauseAdTracker() *PauseAdTracker {
-	return &PauseAdTracker{
+	t := &PauseAdTracker{
 		impressions: make(map[string][]time.Time),
+		stopCleanup: make(chan struct{}),
+		cleanupDone: make(chan struct{}),
 	}
+
+	// Start periodic cleanup goroutine (every 10 minutes)
+	go t.periodicCleanup()
+
+	return t
+}
+
+// periodicCleanup runs a background task to clean up expired sessions
+func (t *PauseAdTracker) periodicCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	defer close(t.cleanupDone)
+
+	for {
+		select {
+		case <-ticker.C:
+			t.cleanupExpiredSessions()
+		case <-t.stopCleanup:
+			return
+		}
+	}
+}
+
+// cleanupExpiredSessions removes all expired sessions from the tracker
+func (t *PauseAdTracker) cleanupExpiredSessions() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+
+	// Iterate through all sessions and clean up expired ones
+	for sessionID := range t.impressions {
+		impressions := t.impressions[sessionID]
+		var cleaned []time.Time
+
+		for _, imp := range impressions {
+			if imp.After(cutoff) {
+				cleaned = append(cleaned, imp)
+			}
+		}
+
+		if len(cleaned) > 0 {
+			t.impressions[sessionID] = cleaned
+		} else {
+			delete(t.impressions, sessionID)
+		}
+	}
+}
+
+// Shutdown stops the periodic cleanup goroutine and waits for it to finish
+func (t *PauseAdTracker) Shutdown() {
+	t.shutdownMu.Lock()
+	defer t.shutdownMu.Unlock()
+
+	if t.shutdown {
+		return // Already shut down
+	}
+
+	if t.stopCleanup != nil {
+		close(t.stopCleanup)
+		<-t.cleanupDone
+	}
+
+	t.shutdown = true
 }
 
 // CanShowAd checks if an ad can be shown based on frequency cap
@@ -222,7 +301,10 @@ func (t *PauseAdTracker) CanShowAd(sessionID string, cap *FrequencyCap) bool {
 	cutoff := now.Add(-time.Duration(cap.TimeWindowSeconds) * time.Second)
 
 	// Get impressions for this session
+	t.mu.RLock()
 	impressions, ok := t.impressions[sessionID]
+	t.mu.RUnlock()
+
 	if !ok {
 		return true
 	}
@@ -240,14 +322,18 @@ func (t *PauseAdTracker) CanShowAd(sessionID string, cap *FrequencyCap) bool {
 
 // RecordImpression records a pause ad impression
 func (t *PauseAdTracker) RecordImpression(sessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	t.impressions[sessionID] = append(t.impressions[sessionID], time.Now())
 
 	// Clean up old impressions
-	t.cleanupOldImpressions(sessionID)
+	t.cleanupOldImpressionsLocked(sessionID)
 }
 
-// cleanupOldImpressions removes impressions older than 24 hours
-func (t *PauseAdTracker) cleanupOldImpressions(sessionID string) {
+// cleanupOldImpressionsLocked removes impressions older than 24 hours
+// Caller must hold t.mu lock
+func (t *PauseAdTracker) cleanupOldImpressionsLocked(sessionID string) {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	impressions := t.impressions[sessionID]
 

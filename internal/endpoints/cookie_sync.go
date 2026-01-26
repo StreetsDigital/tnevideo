@@ -111,6 +111,28 @@ func (h *CookieSyncHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.Limit = h.maxSyncs
 	}
 
+	// GDPR FIX: Validate GDPR consent before processing cookie sync
+	// If GDPR=1 but no valid consent, do not return sync URLs
+	if req.GDPR == 1 {
+		if req.GDPRConsent == "" {
+			logger.Log.Warn().Msg("GDPR consent required but not provided for cookie sync")
+			h.respondJSON(w, CookieSyncResponse{
+				Status:       "ok",
+				BidderStatus: []BidderSyncStatus{},
+			})
+			return
+		}
+		// Validate consent string format (minimum length for TCF v2)
+		if len(req.GDPRConsent) < 20 {
+			logger.Log.Warn().Msg("Invalid GDPR consent string for cookie sync")
+			h.respondJSON(w, CookieSyncResponse{
+				Status:       "ok",
+				BidderStatus: []BidderSyncStatus{},
+			})
+			return
+		}
+	}
+
 	// Parse existing cookie to see what's already synced
 	cookie := usersync.ParseCookie(r)
 

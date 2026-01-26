@@ -90,19 +90,39 @@ type PublisherStore interface {
 }
 
 // PublisherAuth provides publisher authentication for auction endpoints
+//
+// LOCK ORDERING: To prevent deadlocks, locks MUST be acquired in this order:
+//   1. mu (config lock) - protects config, redisClient, publisherStore
+//   2. publisherCacheMu - protects publisherCache
+//   3. rateLimitsMu - protects rateLimits
+//
+// RULES:
+//   - Never acquire locks in reverse order
+//   - Release locks as soon as possible (use RLock when possible)
+//   - Never hold multiple locks across I/O operations (Redis, PostgreSQL)
+//   - Document any method that acquires multiple locks
+//
+// Example correct ordering:
+//   mu.RLock()
+//   config := p.config
+//   mu.RUnlock()
+//   // Now safe to take other locks without holding mu
+//   publisherCacheMu.Lock()
+//   // ... work ...
+//   publisherCacheMu.Unlock()
 type PublisherAuth struct {
 	config         *PublisherAuthConfig
 	redisClient    RedisClient
 	publisherStore PublisherStore
-	mu             sync.RWMutex
+	mu             sync.RWMutex // Level 1: Config/client access
 
 	// Rate limiting per publisher
 	rateLimits   map[string]*rateLimitEntry
-	rateLimitsMu sync.RWMutex
+	rateLimitsMu sync.RWMutex // Level 3: Rate limit state
 
 	// In-memory fallback cache (for Redis/PostgreSQL failures)
 	publisherCache   map[string]*publisherCacheEntry
-	publisherCacheMu sync.RWMutex
+	publisherCacheMu sync.RWMutex // Level 2: Publisher cache
 
 	// IVT detection
 	ivtDetector *IVTDetector
@@ -201,7 +221,10 @@ func (p *PublisherAuth) Middleware(next http.Handler) http.Handler {
 				Str("domain", domain).
 				Str("error", err.Error()).
 				Msg("Publisher validation failed")
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
+			// Use json.NewEncoder to prevent JSON injection
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 
@@ -211,11 +234,12 @@ func (p *PublisherAuth) Middleware(next http.Handler) http.Handler {
 
 			// Log IVT detection
 			if !ivtResult.IsValid {
+				// GDPR FIX: Anonymize IP and truncate UA before logging to prevent PII leakage
 				log.Warn().
 					Str("publisher_id", publisherID).
 					Str("domain", domain).
-					Str("ip", ivtResult.IPAddress).
-					Str("ua", ivtResult.UserAgent).
+					Str("ip", AnonymizeIPForLogging(ivtResult.IPAddress)).
+					Str("ua", AnonymizeUserAgentForLogging(ivtResult.UserAgent)).
 					Int("ivt_score", ivtResult.Score).
 					Int("signal_count", len(ivtResult.Signals)).
 					Bool("blocked", ivtResult.ShouldBlock).
@@ -288,15 +312,28 @@ func (p *PublisherAuth) extractPublisherInfo(req *minimalBidRequest) (publisherI
 
 // validatePublisher validates the publisher ID and domain
 // Fallback chain: Redis → PostgreSQL → Memory cache → RegisteredPubs
+//
+// LOCK ORDERING: mu only (Level 1)
+// Does not hold locks across I/O operations (Redis, PostgreSQL)
+// Calls getCachedPublisher/cachePublisher which handle their own locking
 func (p *PublisherAuth) validatePublisher(ctx context.Context, publisherID, domain string) error {
+	// Lock ordering: Level 1 (mu) - read config atomically
 	p.mu.RLock()
 	allowUnregistered := p.config.AllowUnregistered
 	validateDomain := p.config.ValidateDomain
 	publisherStore := p.publisherStore
 	useRedis := p.config.UseRedis
 	redisClient := p.redisClient
-	registeredPubs := p.config.RegisteredPubs
+	// Make a copy of the map to avoid race conditions when map is modified concurrently
+	var registeredPubs map[string]string
+	if p.config.RegisteredPubs != nil {
+		registeredPubs = make(map[string]string, len(p.config.RegisteredPubs))
+		for k, v := range p.config.RegisteredPubs {
+			registeredPubs[k] = v
+		}
+	}
 	p.mu.RUnlock()
+	// Release mu before any I/O or other lock acquisitions
 
 	// No publisher ID
 	if publisherID == "" {
@@ -429,15 +466,22 @@ func (p *PublisherAuth) domainMatches(domain, allowedDomains string) bool {
 }
 
 // checkRateLimit implements token bucket rate limiting per publisher
+//
+// LOCK ORDERING: mu → rateLimitsMu
+// This method acquires mu.RLock() first, then rateLimitsMu.Lock()
+// Releases mu before acquiring rateLimitsMu to minimize lock holding time
 func (p *PublisherAuth) checkRateLimit(publisherID string) bool {
+	// Lock ordering: Level 1 (mu) first
 	p.mu.RLock()
 	rateLimit := p.config.RateLimitPerPub
 	p.mu.RUnlock()
+	// Release mu before acquiring other locks
 
 	if rateLimit <= 0 {
 		return true // Unlimited
 	}
 
+	// Lock ordering: Level 3 (rateLimitsMu)
 	p.rateLimitsMu.Lock()
 	defer p.rateLimitsMu.Unlock()
 
@@ -476,6 +520,7 @@ func (p *PublisherAuth) checkRateLimit(publisherID string) bool {
 
 // cleanupStaleRateLimits removes rate limit entries that haven't been accessed recently
 // This prevents unbounded memory growth from unique publisher IDs (DoS vector)
+// CALLER MUST HOLD rateLimitsMu.Lock()
 func (p *PublisherAuth) cleanupStaleRateLimits(now time.Time) {
 	// Remove entries not accessed in the last hour
 	staleThreshold := now.Add(-1 * time.Hour)
@@ -525,6 +570,9 @@ func (p *PublisherAuth) logDatabaseFallback(err error, pubID string) {
 }
 
 // cachePublisher caches a publisher in memory with TTL
+//
+// LOCK ORDERING: publisherCacheMu only (Level 2)
+// Safe to call from any context - does not acquire other locks
 func (p *PublisherAuth) cachePublisher(publisherID, allowedDomains string, ttl time.Duration) {
 	p.publisherCacheMu.Lock()
 	defer p.publisherCacheMu.Unlock()
@@ -545,6 +593,9 @@ func (p *PublisherAuth) cachePublisher(publisherID, allowedDomains string, ttl t
 }
 
 // getCachedPublisher retrieves a cached publisher if it exists and hasn't expired
+//
+// LOCK ORDERING: publisherCacheMu only (Level 2)
+// Safe to call from any context - does not acquire other locks
 func (p *PublisherAuth) getCachedPublisher(publisherID string) string {
 	p.publisherCacheMu.RLock()
 	defer p.publisherCacheMu.RUnlock()
@@ -562,6 +613,7 @@ func (p *PublisherAuth) getCachedPublisher(publisherID string) string {
 }
 
 // cleanupExpiredCache removes expired cache entries
+// CALLER MUST HOLD publisherCacheMu.Lock()
 func (p *PublisherAuth) cleanupExpiredCache() {
 	now := time.Now()
 	for pubID, entry := range p.publisherCache {

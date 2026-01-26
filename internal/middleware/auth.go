@@ -44,13 +44,16 @@ type AuthConfig struct {
 func DefaultAuthConfig() *AuthConfig {
 	redisURL := os.Getenv("REDIS_URL")
 	return &AuthConfig{
-		Enabled:     os.Getenv("AUTH_ENABLED") == "true",
+		// SECURITY: Auth is ENABLED by default (secure by default)
+		// Set AUTH_ENABLED=false to explicitly disable (not recommended for production)
+		Enabled:     os.Getenv("AUTH_ENABLED") != "false",
 		APIKeys:     parseAPIKeys(os.Getenv("API_KEYS")),
 		HeaderName:  "X-API-Key",
-		BypassPaths: []string{"/health", "/status", "/metrics", "/info/bidders", "/cookie_sync", "/setuid", "/optout", "/admin/dashboard", "/admin/metrics"},
+		// SECURITY: /metrics and /admin/* endpoints now require authentication
+		// Removed /metrics, /admin/dashboard, /admin/metrics from bypass list (CVE-2026-XXXX)
+		BypassPaths: []string{"/health", "/status", "/info/bidders", "/cookie_sync", "/setuid", "/optout"},
 		// Note: /openrtb2/auction is conditionally added to bypass list in cmd/server/main.go
 		// based on whether PublisherAuth is enabled (primary auth) or disabled (fallback to API key)
-		// Note: /admin/dashboard and /admin/metrics are public for team monitoring
 		RedisURL: redisURL,
 		UseRedis: redisURL != "" && os.Getenv("AUTH_USE_REDIS") != "false",
 	}
@@ -91,6 +94,12 @@ type Auth struct {
 	keyCache     map[string]cachedKey
 	cacheMu      sync.RWMutex
 	cacheTimeout time.Duration
+	// Cache size limit to prevent unbounded growth
+	maxCacheSize int
+	stopCleanup  chan struct{}
+	cleanupDone  chan struct{}
+	shutdown     bool
+	shutdownMu   sync.Mutex
 }
 
 type cachedKey struct {
@@ -103,11 +112,65 @@ func NewAuth(config *AuthConfig) *Auth {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
-	return &Auth{
+	a := &Auth{
 		config:       config,
 		keyCache:     make(map[string]cachedKey),
 		cacheTimeout: pbsconfig.AuthCacheTimeout, // P2-6: use named constant
+		maxCacheSize: 10000,                      // Limit cache to 10,000 entries
+		stopCleanup:  make(chan struct{}),
+		cleanupDone:  make(chan struct{}),
 	}
+
+	// Start periodic cleanup goroutine (every 10 minutes)
+	go a.periodicCacheCleanup()
+
+	return a
+}
+
+// periodicCacheCleanup runs a background task to clean up expired cache entries
+func (a *Auth) periodicCacheCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	defer close(a.cleanupDone)
+
+	for {
+		select {
+		case <-ticker.C:
+			a.cleanupExpiredCacheEntries()
+		case <-a.stopCleanup:
+			return
+		}
+	}
+}
+
+// cleanupExpiredCacheEntries removes expired entries from the cache
+func (a *Auth) cleanupExpiredCacheEntries() {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+
+	now := time.Now()
+	for key, cached := range a.keyCache {
+		if now.After(cached.expiresAt) {
+			delete(a.keyCache, key)
+		}
+	}
+}
+
+// Shutdown stops the periodic cleanup goroutine and waits for it to finish
+func (a *Auth) Shutdown() {
+	a.shutdownMu.Lock()
+	defer a.shutdownMu.Unlock()
+
+	if a.shutdown {
+		return // Already shut down
+	}
+
+	if a.stopCleanup != nil {
+		close(a.stopCleanup)
+		<-a.cleanupDone
+	}
+
+	a.shutdown = true
 }
 
 // NewAuthWithRedis creates Auth middleware with a Redis client
@@ -140,9 +203,14 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check bypass paths
+		// Check bypass paths with exact matching to prevent bypass attacks
+		// SECURITY: Use exact path matching instead of HasPrefix (CVE-2026-XXXX)
+		// This prevents /statusanything from matching /status
 		for _, path := range bypassPaths {
-			if strings.HasPrefix(r.URL.Path, path) {
+			// Exact match or prefix followed by / or ?
+			if r.URL.Path == path ||
+				strings.HasPrefix(r.URL.Path, path+"/") ||
+				strings.HasPrefix(r.URL.Path, path+"?") {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -252,6 +320,23 @@ func (a *Auth) checkCache(key string) (string, bool) {
 func (a *Auth) updateCache(key, publisherID string) {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
+
+	// Enforce cache size limit to prevent unbounded growth
+	if len(a.keyCache) >= a.maxCacheSize {
+		// Cache is full - evict oldest entry (simple LRU-like behavior)
+		// In production, consider using a proper LRU cache implementation
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range a.keyCache {
+			if oldestKey == "" || v.expiresAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.expiresAt
+			}
+		}
+		if oldestKey != "" {
+			delete(a.keyCache, oldestKey)
+		}
+	}
 
 	// Use shorter timeout for negative results (P2-6: use named constant)
 	timeout := a.cacheTimeout

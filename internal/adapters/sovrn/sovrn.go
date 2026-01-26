@@ -3,11 +3,11 @@ package sovrn
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://ap.lijit.com/rtb/bid"
@@ -40,9 +40,17 @@ func (a *Adapter) MakeBids(request *openrtb.BidRequest, responseData *adapters.R
 		return nil, []error{err}
 	}
 	response := &adapters.BidderResponse{Currency: bidResp.Cur, ResponseID: bidResp.ID, Bids: make([]*adapters.TypedBid, 0)}
+
+	// Build impression map for O(1) bid type detection
+	impMap := adapters.BuildImpMap(request.Imp)
+
 	for _, sb := range bidResp.SeatBid {
 		for i := range sb.Bid {
-			response.Bids = append(response.Bids, &adapters.TypedBid{Bid: &sb.Bid[i], BidType: adapters.BidTypeBanner})
+			bid := &sb.Bid[i]
+			// Detect bid type from impression instead of hardcoding
+			bidType := adapters.GetBidTypeFromMap(bid, impMap)
+
+			response.Bids = append(response.Bids, &adapters.TypedBid{Bid: bid, BidType: bidType})
 		}
 	}
 	return response, nil
@@ -60,6 +68,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("sovrn", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register sovrn adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "sovrn").Msg("failed to register adapter")
 	}
 }

@@ -3,11 +3,11 @@ package smartadserver
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://ssb-global.smartadserver.com/api/bid"
@@ -61,6 +61,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("smartadserver", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register smartadserver adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "smartadserver").Msg("failed to register adapter")
 	}
 }

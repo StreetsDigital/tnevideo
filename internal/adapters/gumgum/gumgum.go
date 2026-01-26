@@ -3,11 +3,11 @@ package gumgum
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/thenexusengine/tne_springwire/internal/adapters"
 	"github.com/thenexusengine/tne_springwire/internal/openrtb"
+	"github.com/thenexusengine/tne_springwire/pkg/logger"
 )
 
 const defaultEndpoint = "https://g2.gumgum.com/providers/prbds2s/bid"
@@ -60,6 +60,6 @@ func Info() adapters.BidderInfo {
 
 func init() {
 	if err := adapters.RegisterAdapter("gumgum", New(""), Info()); err != nil {
-		panic(fmt.Sprintf("failed to register gumgum adapter: %v", err))
+		logger.Log.Error().Err(err).Str("adapter", "gumgum").Msg("failed to register adapter")
 	}
 }

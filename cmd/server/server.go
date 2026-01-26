@@ -103,8 +103,13 @@ func (s *Server) initDatabase() error {
 		return nil
 	}
 
+	// Create context for database connection and operations
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	dbCfg := s.config.DatabaseConfig
 	dbConn, err := storage.NewDBConnection(
+		ctx,
 		dbCfg.Host,
 		dbCfg.Port,
 		dbCfg.User,
@@ -119,10 +124,6 @@ func (s *Server) initDatabase() error {
 
 	s.db = storage.NewBidderStore(dbConn)
 	s.publisher = storage.NewPublisherStore(dbConn)
-
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	// Load and log bidders from database
 	bidders, err := s.db.ListActive(ctx)
@@ -210,6 +211,12 @@ func (s *Server) initHandlers() {
 	statusHandler := endpoints.NewStatusHandler()
 	biddersHandler := endpoints.NewDynamicInfoBiddersHandler(adapters.DefaultRegistry)
 
+	// Video handlers
+	videoHandler := endpoints.NewVideoHandler(s.exchange, s.config.HostURL)
+	videoEventHandler := endpoints.NewVideoEventHandler(nil) // Analytics can be added later
+
+	log.Info().Msg("Video handlers initialized")
+
 	// Cookie sync handlers
 	cookieSyncConfig := endpoints.DefaultCookieSyncConfig(s.config.HostURL)
 	cookieSyncHandler := endpoints.NewCookieSyncHandler(cookieSyncConfig)
@@ -250,6 +257,13 @@ func (s *Server) initHandlers() {
 	mux.Handle("/cookie_sync", cookieSyncHandler)
 	mux.Handle("/setuid", setuidHandler)
 	mux.Handle("/optout", optoutHandler)
+
+	// Video endpoints
+	mux.HandleFunc("/video/vast", videoHandler.HandleVASTRequest)
+	mux.HandleFunc("/video/openrtb", videoHandler.HandleOpenRTBVideo)
+	endpoints.RegisterVideoEventRoutes(mux, videoEventHandler)
+
+	log.Info().Msg("Video endpoints registered: /video/vast, /video/openrtb, /video/event/*")
 
 	// Prometheus metrics endpoint
 	mux.Handle("/metrics", metrics.Handler())
@@ -465,7 +479,27 @@ func healthHandler() http.Handler {
 	})
 }
 
+// sanitizeHealthCheckError returns a safe, generic error message for health check responses.
+// SECURITY: Raw error messages from database/Redis may contain sensitive information such as:
+// - Connection strings with hostnames, ports, or credentials
+// - Internal network topology (IP addresses, service names)
+// - Software version information useful for fingerprinting
+// - Stack traces or internal paths
+// This function logs the full error for debugging while returning only a safe message to clients.
+func sanitizeHealthCheckError(service string, err error) string {
+	// Log the full error for operators/debugging (internal logs only)
+	logger.Log.Warn().
+		Str("service", service).
+		Err(err).
+		Msg("Health check failed - see logs for details")
+
+	// Return generic message to external clients
+	return "connection failed"
+}
+
 // readyHandler returns a readiness check with dependency verification
+// SECURITY: Error messages are sanitized to prevent information disclosure.
+// Raw errors may contain connection strings, hostnames, or internal network details.
 func readyHandler(redisClient *redis.Client, publisherStore *storage.PublisherStore, ex *exchange.Exchange) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -479,7 +513,7 @@ func readyHandler(redisClient *redis.Client, publisherStore *storage.PublisherSt
 			if err := publisherStore.Ping(ctx); err != nil {
 				checks["database"] = map[string]interface{}{
 					"status": "unhealthy",
-					"error":  err.Error(),
+					"error":  sanitizeHealthCheckError("database", err),
 				}
 				allHealthy = false
 			} else {
@@ -498,7 +532,7 @@ func readyHandler(redisClient *redis.Client, publisherStore *storage.PublisherSt
 			if err := redisClient.Ping(ctx); err != nil {
 				checks["redis"] = map[string]interface{}{
 					"status": "unhealthy",
-					"error":  err.Error(),
+					"error":  sanitizeHealthCheckError("redis", err),
 				}
 				allHealthy = false
 			} else {
@@ -518,7 +552,7 @@ func readyHandler(redisClient *redis.Client, publisherStore *storage.PublisherSt
 			if err := idrClient.HealthCheck(ctx); err != nil {
 				checks["idr"] = map[string]interface{}{
 					"status": "unhealthy",
-					"error":  err.Error(),
+					"error":  sanitizeHealthCheckError("idr", err),
 				}
 				allHealthy = false
 			} else {

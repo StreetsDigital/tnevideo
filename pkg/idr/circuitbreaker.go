@@ -1,6 +1,7 @@
 package idr
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -180,7 +181,36 @@ func (cb *CircuitBreaker) setState(newState string) {
 		cb.callbackWg.Add(1)
 		go func(from, to string) {
 			defer cb.callbackWg.Done()
-			cb.config.OnStateChange(from, to)
+
+			// Prevent callback from blocking forever - use 5 second timeout
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Run callback in nested goroutine with done channel and panic recovery
+			done := make(chan struct{})
+			go func() {
+				defer func() {
+					// Recover from panics in callback to prevent crashes
+					if r := recover(); r != nil {
+						// In production, this would use a structured logger
+						// log.Error("circuit breaker callback panicked", "panic", r, "from", from, "to", to)
+					}
+					close(done)
+				}()
+				cb.config.OnStateChange(from, to)
+			}()
+
+			// Wait for either completion or timeout
+			select {
+			case <-done:
+				// Callback completed successfully
+			case <-ctx.Done():
+				// Callback timed out - nested goroutine will be orphaned but outer goroutine exits
+				// WARNING: If callback blocks indefinitely, the nested goroutine cannot be killed.
+				// This is a Go runtime limitation. Callbacks MUST be non-blocking or have internal timeouts.
+				// In production, this would use a structured logger
+				// log.Warn("circuit breaker callback timed out - goroutine may be orphaned", "from", from, "to", to, "timeout", "5s")
+			}
 		}(oldState, newState)
 	}
 }
