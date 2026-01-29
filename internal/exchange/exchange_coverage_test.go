@@ -165,9 +165,9 @@ func TestBuildBidExtension_PlatformDemand(t *testing.T) {
 		t.Fatal("Expected non-nil Prebid extension")
 	}
 
-	// Should use "thenexusengine" for platform demand
-	if ext.Prebid.Targeting["hb_bidder"] != "thenexusengine" {
-		t.Errorf("Expected hb_bidder 'thenexusengine', got '%s'", ext.Prebid.Targeting["hb_bidder"])
+	// Should use "tne_appnexus" prefix for platform demand
+	if ext.Prebid.Targeting["hb_bidder"] != "tne_appnexus" {
+		t.Errorf("Expected hb_bidder 'tne_appnexus', got '%s'", ext.Prebid.Targeting["hb_bidder"])
 	}
 
 	// Should include deal ID
@@ -207,9 +207,9 @@ func TestBuildBidExtension_PublisherDemand(t *testing.T) {
 		t.Fatal("Expected non-nil Prebid extension")
 	}
 
-	// Should use original bidder code for publisher demand
-	if ext.Prebid.Targeting["hb_bidder"] != "rubicon" {
-		t.Errorf("Expected hb_bidder 'rubicon', got '%s'", ext.Prebid.Targeting["hb_bidder"])
+	// Should use tne_ prefix for publisher demand too
+	if ext.Prebid.Targeting["hb_bidder"] != "tne_rubicon" {
+		t.Errorf("Expected hb_bidder 'tne_rubicon', got '%s'", ext.Prebid.Targeting["hb_bidder"])
 	}
 
 	// Should include size

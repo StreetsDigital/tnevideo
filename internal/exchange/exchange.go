@@ -1604,9 +1604,10 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 	// Apply bid multiplier if publisher is configured with one
 	auctionedBids = e.applyBidMultiplier(ctx, auctionedBids)
 
-	// Build seat bids with demand type obfuscation:
-	// - Platform demand: aggregated into single "thenexusengine" seat (highest bid per impression)
-	// - Publisher demand: shown transparently with original bidder codes
+	// Build seat bids using "tne_<bidder>" namespaced seats.
+	// Platform demand: only the highest bid per impression is included (auction winner).
+	// Publisher demand: all bids included transparently.
+	// Both use the tne_ prefix so the publisher can distinguish TNE-routed demand.
 	seatBidMap := make(map[string]*openrtb.SeatBid)
 
 	for _, impBids := range auctionedBids {
@@ -1618,14 +1619,12 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 			if vb.DemandType == adapters.DemandTypePublisher {
 				publisherBids = append(publisherBids, vb)
 			} else {
-				// Default to platform for obfuscation
 				platformBids = append(platformBids, vb)
 			}
 		}
 
-		// Add highest platform bid to "thenexusengine" seat (obfuscated)
+		// Add highest platform bid (only winner per impression)
 		if len(platformBids) > 0 {
-			// Find highest CPM platform bid for this impression
 			highestPlatformBid := platformBids[0]
 			for _, vb := range platformBids[1:] {
 				if vb.Bid.Bid.Price > highestPlatformBid.Bid.Bid.Price {
@@ -1633,17 +1632,16 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 				}
 			}
 
-			// Get or create the thenexusengine seat
-			nexusSeat, ok := seatBidMap[adapters.PlatformSeatName]
+			seatKey := "tne_" + highestPlatformBid.BidderCode
+			nexusSeat, ok := seatBidMap[seatKey]
 			if !ok {
 				nexusSeat = &openrtb.SeatBid{
-					Seat: adapters.PlatformSeatName,
+					Seat: seatKey,
 					Bid:  []openrtb.Bid{},
 				}
-				seatBidMap[adapters.PlatformSeatName] = nexusSeat
+				seatBidMap[seatKey] = nexusSeat
 			}
 
-			// Create obfuscated bid with "thenexusengine" branding in targeting
 			bid := *highestPlatformBid.Bid.Bid
 			bidExt := e.buildBidExtension(highestPlatformBid, nil)
 			if extBytes, err := json.Marshal(bidExt); err == nil {
@@ -1652,18 +1650,18 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 			nexusSeat.Bid = append(nexusSeat.Bid, bid)
 		}
 
-		// Add all publisher bids transparently
+		// Add all publisher bids
 		for _, vb := range publisherBids {
-			sb, ok := seatBidMap[vb.BidderCode]
+			seatKey := "tne_" + vb.BidderCode
+			sb, ok := seatBidMap[seatKey]
 			if !ok {
 				sb = &openrtb.SeatBid{
-					Seat: vb.BidderCode,
+					Seat: seatKey,
 					Bid:  []openrtb.Bid{},
 				}
-				seatBidMap[vb.BidderCode] = sb
+				seatBidMap[seatKey] = sb
 			}
 
-			// Create bid copy with Prebid extension for targeting
 			bid := *vb.Bid.Bid
 			bidExt := e.buildBidExtension(vb, nil)
 			if extBytes, err := json.Marshal(bidExt); err == nil {
@@ -2363,13 +2361,11 @@ func (e *Exchange) buildBidExtension(vb ValidatedBid, cacheResult *CacheResult) 
 	// Generate price bucket using medium granularity
 	priceBucket := formatPriceBucket(bid.Price)
 
-	// Determine display bidder code based on demand type:
-	// - Platform demand: use "thenexusengine" (obfuscated)
-	// - Publisher demand: use original bidder code (transparent)
-	displayBidderCode := vb.BidderCode
-	if vb.DemandType != adapters.DemandTypePublisher {
-		displayBidderCode = adapters.PlatformSeatName // "thenexusengine"
-	}
+	// Determine display bidder code:
+	// All bids are prefixed with "tne_" to namespace TNE-routed demand,
+	// making it distinguishable from any other header bidding the publisher runs.
+	// e.g. "appnexus" -> "tne_appnexus", "rubicon" -> "tne_rubicon"
+	displayBidderCode := "tne_" + vb.BidderCode
 
 	// Build targeting keys that Prebid.js expects
 	targeting := map[string]string{
