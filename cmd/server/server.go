@@ -13,6 +13,7 @@ import (
 	_ "github.com/thenexusengine/tne_springwire/internal/adapters/demo"
 	_ "github.com/thenexusengine/tne_springwire/internal/adapters/pubmatic"
 	_ "github.com/thenexusengine/tne_springwire/internal/adapters/rubicon"
+	"github.com/thenexusengine/tne_springwire/internal/cache"
 	pbsconfig "github.com/thenexusengine/tne_springwire/internal/config"
 	"github.com/thenexusengine/tne_springwire/internal/endpoints"
 	"github.com/thenexusengine/tne_springwire/internal/exchange"
@@ -33,6 +34,7 @@ type Server struct {
 	db          *storage.BidderStore
 	publisher   *storage.PublisherStore
 	redisClient *redis.Client
+	cacheStore  *cache.Store
 }
 
 // NewServer creates a new PBS server instance
@@ -80,6 +82,9 @@ func (s *Server) initialize() error {
 		// Redis failures are non-fatal, log and continue
 		log.Warn().Err(err).Msg("Redis initialization failed, continuing with reduced functionality")
 	}
+
+	// Initialize Prebid Cache (requires Redis)
+	s.initCache()
 
 	// List registered bidders
 	bidders := adapters.DefaultRegistry.ListBidders()
@@ -202,6 +207,26 @@ func (s *Server) initRedis() error {
 	return nil
 }
 
+// initCache initializes the Prebid Cache store (backed by Redis)
+func (s *Server) initCache() {
+	log := logger.Log
+
+	if s.redisClient == nil {
+		log.Info().Msg("Prebid Cache disabled (requires Redis)")
+		return
+	}
+
+	s.cacheStore = cache.NewStore(s.redisClient, s.config.HostURL)
+
+	// Wire cache into exchange for automatic bid caching
+	adapter := cache.NewExchangeAdapter(s.cacheStore)
+	s.exchange.SetCacheStore(adapter)
+
+	log.Info().
+		Str("host_url", s.config.HostURL).
+		Msg("Prebid Cache initialized")
+}
+
 // initHandlers initializes HTTP handlers and builds the handler chain
 func (s *Server) initHandlers() {
 	log := logger.Log
@@ -264,6 +289,13 @@ func (s *Server) initHandlers() {
 	endpoints.RegisterVideoEventRoutes(mux, videoEventHandler)
 
 	log.Info().Msg("Video endpoints registered: /video/vast, /video/openrtb, /video/event/*")
+
+	// Prebid Cache endpoint (requires Redis)
+	if s.cacheStore != nil {
+		cacheHandler := endpoints.NewCacheHandler(s.cacheStore)
+		mux.Handle("/cache", cacheHandler)
+		log.Info().Msg("Prebid Cache endpoint registered: /cache")
+	}
 
 	// Prometheus metrics endpoint
 	mux.Handle("/metrics", metrics.Handler())

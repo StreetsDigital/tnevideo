@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TNE Video - Publisher Integration Example</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; }
+    h1 { color: #333; }
+    .ad-slot { background: #f5f5f5; border: 1px dashed #ccc; display: flex; align-items: center; justify-content: center; margin: 20px 0; }
+    .ad-slot::before { content: 'Ad Slot: ' attr(id); color: #999; }
+    #video-container { width: 640px; height: 360px; background: #000; margin: 20px 0; }
+    pre { background: #f0f0f0; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    .section { margin: 30px 0; }
+  </style>
+</head>
+<body>
+
+  <h1>TNE Video - Publisher Integration Example</h1>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       EXAMPLE 1: Banner Ad Slot
+       The universal creative in GAM renders the winning bid here.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <h2>Banner Ad (300x250)</h2>
+    <p>This slot uses the GAM Universal Creative to render the winning Prebid bid.</p>
+    <div id="banner-1" class="ad-slot" style="width:300px; height:250px;"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       EXAMPLE 2: Leaderboard Ad Slot
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <h2>Leaderboard Ad (728x90)</h2>
+    <div id="leaderboard-1" class="ad-slot" style="width:728px; height:90px;"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       EXAMPLE 3: Instream Video
+       Uses VAST redirect creative in GAM. The video player fetches
+       the VAST URL built by TNEVideo.buildVideoUrl().
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <h2>Instream Video (Pre-roll)</h2>
+    <p>The video player receives a VAST URL with Prebid targeting, routed through GAM.</p>
+    <div id="video-container">
+      <video id="video-player" width="640" height="360" controls></video>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       GAM Universal Creative Setup Reference
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <h2>GAM Setup Reference</h2>
+
+    <h3>1. Banner/Outstream - Universal Creative (Third-Party HTML)</h3>
+    <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/prebid-universal-creative@latest/dist/creative.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  var ucTagData = {};
+  ucTagData.adServerDomain = "";
+  ucTagData.pubUrl = "%%PATTERN:url%%";
+  ucTagData.targetingMap = %%PATTERN:TARGETINGMAP%%;
+  ucTagData.hbPb = "%%PATTERN:hb_pb%%";
+
+  // For Send All Bids, use bidder-specific keys:
+  // ucTagData.adId = "%%PATTERN:hb_adid_BIDDERCODE%%";
+  // ucTagData.cacheHost = "%%PATTERN:hb_cache_host_BIDDERCODE%%";
+  // ucTagData.cachePath = "%%PATTERN:hb_cache_path_BIDDERCODE%%";
+  // ucTagData.uuid = "%%PATTERN:hb_cache_id_BIDDERCODE%%";
+  // ucTagData.size = "%%PATTERN:hb_size_BIDDERCODE%%";
+
+  try {
+    ucTag.renderAd(document, ucTagData);
+  } catch (e) {
+    console.log(e);
+  }
+&lt;/script&gt;</code></pre>
+
+    <h3>2. Instream Video - VAST Redirect Creative</h3>
+    <pre><code>Creative Type: VAST redirect
+VAST Tag URL:  https://YOUR-SERVER.com/cache?uuid=%%PATTERN:hb_uuid%%</code></pre>
+
+    <h3>3. GAM Line Item Targeting</h3>
+    <pre><code>Key-Value Targeting:
+  hb_pb = 0.50, 1.00, 1.50, 2.00, ..., 20.00  (price buckets)
+  hb_format = video | banner | native
+  hb_bidder = appnexus | rubicon | pubmatic | thenexusengine</code></pre>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TNEVideo Integration Script
+       ═══════════════════════════════════════════════════════════════════ -->
+  <script src="../js/tnevideo.js"></script>
+  <script>
+    // ── Initialize TNEVideo ──
+    TNEVideo.init({
+      // Your TNE Catalyst Prebid Server URL
+      serverUrl: 'https://pbs.yourdomain.com',
+
+      // Your publisher ID (registered in Catalyst)
+      publisherId: 'pub-12345',
+
+      // Your GAM network ID
+      gamNetworkId: '/19968336',
+
+      // Bidders to route through server-side auctions
+      s2sBidders: ['appnexus', 'rubicon', 'pubmatic'],
+
+      // Total auction timeout
+      timeout: 1500,
+
+      // User ID modules for identity resolution
+      userIds: [
+        {
+          name: 'sharedId',
+          storage: { name: '_sharedid', type: 'cookie', expires: 365 }
+        },
+        {
+          name: 'unifiedId',
+          params: { partner: 'your-partner-id' },
+          storage: { name: 'unifiedid', type: 'cookie', expires: 30 }
+        },
+        {
+          name: 'id5Id',
+          params: { partner: 1234 },
+          storage: { name: 'id5id', type: 'html5', expires: 90 }
+        }
+      ],
+
+      // Enable debug logging
+      debug: true,
+
+      // ── Ad Units ──
+      adUnits: [
+        // Banner 300x250
+        {
+          code: 'banner-1',
+          mediaTypes: {
+            banner: {
+              sizes: [[300, 250], [300, 600]]
+            }
+          },
+          bids: {
+            appnexus: { placementId: 13144370 },
+            rubicon: { accountId: 1001, siteId: 113932, zoneId: 535510 },
+            pubmatic: { publisherId: '156209', adSlot: '/43743431/DMDemo@300x250' }
+          }
+        },
+
+        // Leaderboard 728x90
+        {
+          code: 'leaderboard-1',
+          mediaTypes: {
+            banner: {
+              sizes: [[728, 90], [970, 90]]
+            }
+          },
+          bids: {
+            appnexus: { placementId: 13144371 },
+            rubicon: { accountId: 1001, siteId: 113932, zoneId: 535511 }
+          }
+        },
+
+        // Instream Video (pre-roll)
+        {
+          code: 'video-preroll',
+          gamAdUnitPath: '/19968336/prebid_cache_video_adunit',
+          mediaTypes: {
+            video: {
+              context: 'instream',
+              playerSize: [640, 360],
+              mimes: ['video/mp4'],
+              protocols: [2, 5],
+              maxduration: 30,
+              linearity: 1,
+              api: [2],
+              skip: 1,
+              skipafter: 5
+            }
+          },
+          bids: {
+            appnexus: { placementId: 13232385 },
+            rubicon: { accountId: 1001, siteId: 113932, zoneId: 535512, video: { language: 'en' } }
+          }
+        }
+      ],
+
+      // ── Callbacks ──
+      onAuctionEnd: function (bids) {
+        console.log('[Publisher] Auction complete:', bids);
+
+        // For instream video: build the VAST URL and pass to player
+        var videoUrl = TNEVideo.buildVideoUrl({
+          adUnit: {
+            code: 'video-preroll',
+            mediaTypes: { video: { context: 'instream' } }
+          },
+          iu: '/19968336/prebid_cache_video_adunit'
+        });
+
+        if (videoUrl) {
+          console.log('[Publisher] Video VAST URL:', videoUrl);
+          // In production, pass this to your video player:
+          // videoPlayer.src({ src: videoUrl, type: 'video/mp4' });
+        }
+      },
+
+      onBidWon: function (bid) {
+        console.log('[Publisher] Bid won:', bid.bidder, '$' + bid.cpm);
+      },
+
+      onError: function (error) {
+        console.error('[Publisher] Error:', error.message);
+      }
+    });
+  </script>
+
+</body>
+</html>

@@ -126,6 +126,25 @@ func (c *Client) SMembers(ctx context.Context, key string) ([]string, error) {
 	return c.client.SMembers(ctx, key).Result()
 }
 
+// Get gets a string value by key
+func (c *Client) Get(ctx context.Context, key string) (string, error) {
+	result, err := c.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
+	}
+	return result, err
+}
+
+// Set sets a string value with no expiration
+func (c *Client) Set(ctx context.Context, key string, value interface{}) error {
+	return c.client.Set(ctx, key, value, 0).Err()
+}
+
+// SetEx sets a string value with expiration
+func (c *Client) SetEx(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
+	return c.client.Set(ctx, key, value, expiration).Err()
+}
+
 // Ping tests the connection
 func (c *Client) Ping(ctx context.Context) error {
 	return c.client.Ping(ctx).Err()

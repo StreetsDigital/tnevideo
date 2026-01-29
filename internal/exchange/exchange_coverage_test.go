@@ -159,7 +159,7 @@ func TestBuildBidExtension_PlatformDemand(t *testing.T) {
 		DemandType: adapters.DemandTypePlatform,
 	}
 
-	ext := exchange.buildBidExtension(vb)
+	ext := exchange.buildBidExtension(vb, nil)
 
 	if ext.Prebid == nil {
 		t.Fatal("Expected non-nil Prebid extension")
@@ -201,7 +201,7 @@ func TestBuildBidExtension_PublisherDemand(t *testing.T) {
 		DemandType: adapters.DemandTypePublisher,
 	}
 
-	ext := exchange.buildBidExtension(vb)
+	ext := exchange.buildBidExtension(vb, nil)
 
 	if ext.Prebid == nil {
 		t.Fatal("Expected non-nil Prebid extension")
@@ -238,7 +238,7 @@ func TestBuildBidExtension_VideoType(t *testing.T) {
 		DemandType: adapters.DemandTypePlatform,
 	}
 
-	ext := exchange.buildBidExtension(vb)
+	ext := exchange.buildBidExtension(vb, nil)
 
 	if ext.Prebid == nil {
 		t.Fatal("Expected non-nil Prebid extension")

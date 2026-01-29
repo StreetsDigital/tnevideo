@@ -54,6 +54,30 @@ type MetricsRecorder interface {
 	RecordBidderCircuitStateChange(bidder, fromState, toState string)
 }
 
+// CacheStore is the interface the exchange needs for bid caching (Prebid Cache protocol)
+type CacheStore interface {
+	Put(ctx context.Context, req *CachePutRequest) (*CachePutResponse, error)
+	CacheURL(uuid string) string
+	CacheHost() string
+	CachePath() string
+}
+
+// CachePutRequest is the exchange-facing cache request type (avoids import cycle)
+type CachePutRequest struct {
+	Puts []CachePutObject
+}
+
+// CachePutObject is a single item to cache
+type CachePutObject struct {
+	Type  string // "xml" or "json"
+	Value string // The content to cache
+}
+
+// CachePutResponse contains the UUIDs assigned to cached items
+type CachePutResponse struct {
+	UUIDs []string
+}
+
 // Exchange orchestrates the auction process
 type Exchange struct {
 	registry        *adapters.Registry
@@ -64,6 +88,7 @@ type Exchange struct {
 	fpdProcessor    *fpd.Processor
 	eidFilter       *fpd.EIDFilter
 	metrics         MetricsRecorder
+	cacheStore      CacheStore
 
 	// Per-bidder circuit breakers to prevent cascade failures
 	bidderBreakers   map[string]*idr.CircuitBreaker
@@ -270,6 +295,13 @@ func (e *Exchange) SetMetrics(m MetricsRecorder) {
 	e.configMu.Lock()
 	defer e.configMu.Unlock()
 	e.metrics = m
+}
+
+// SetCacheStore sets the Prebid Cache store for bid caching
+func (e *Exchange) SetCacheStore(cs CacheStore) {
+	e.configMu.Lock()
+	defer e.configMu.Unlock()
+	e.cacheStore = cs
 }
 
 // Close shuts down the exchange and flushes pending events
@@ -1613,7 +1645,7 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 
 			// Create obfuscated bid with "thenexusengine" branding in targeting
 			bid := *highestPlatformBid.Bid.Bid
-			bidExt := e.buildBidExtension(highestPlatformBid)
+			bidExt := e.buildBidExtension(highestPlatformBid, nil)
 			if extBytes, err := json.Marshal(bidExt); err == nil {
 				bid.Ext = extBytes
 			}
@@ -1633,7 +1665,7 @@ func (e *Exchange) RunAuction(ctx context.Context, req *AuctionRequest) (*Auctio
 
 			// Create bid copy with Prebid extension for targeting
 			bid := *vb.Bid.Bid
-			bidExt := e.buildBidExtension(vb)
+			bidExt := e.buildBidExtension(vb, nil)
 			if extBytes, err := json.Marshal(bidExt); err == nil {
 				bid.Ext = extBytes
 			}
@@ -2312,9 +2344,19 @@ func (e *Exchange) buildEmptyResponse(req *openrtb.BidRequest, nbr openrtb.NoBid
 	}
 }
 
-// buildBidExtension creates the Prebid extension for a bid including targeting keys
-// This is required for Prebid.js integration to work correctly
-func (e *Exchange) buildBidExtension(vb ValidatedBid) *openrtb.BidExt {
+// CacheResult holds the cache UUID and URL for a cached bid
+type CacheResult struct {
+	UUID     string // UUID in the cache store
+	URL      string // Full retrieval URL
+	Host     string // Cache host
+	Path     string // Cache path
+}
+
+// buildBidExtension creates the Prebid extension for a bid including targeting keys.
+// This is required for Prebid.js and GAM universal creative integration.
+// The cacheResult parameter is optional -- when present, cache-related targeting
+// keys (hb_uuid, hb_cache_id, hb_cache_host, hb_cache_path) are included.
+func (e *Exchange) buildBidExtension(vb ValidatedBid, cacheResult *CacheResult) *openrtb.BidExt {
 	bid := vb.Bid.Bid
 	bidType := string(vb.Bid.BidType)
 
@@ -2335,6 +2377,8 @@ func (e *Exchange) buildBidExtension(vb ValidatedBid) *openrtb.BidExt {
 		"hb_bidder":                      displayBidderCode,
 		"hb_pb_" + displayBidderCode:     priceBucket,
 		"hb_bidder_" + displayBidderCode: displayBidderCode,
+		"hb_format":                      bidType,
+		"hb_format_" + displayBidderCode: bidType,
 	}
 
 	// Only add hb_size for bids that have valid dimensions
@@ -2351,7 +2395,16 @@ func (e *Exchange) buildBidExtension(vb ValidatedBid) *openrtb.BidExt {
 		targeting["hb_deal_"+displayBidderCode] = bid.DealID
 	}
 
-	return &openrtb.BidExt{
+	// Add ad ID (creative reference for universal creative rendering)
+	if bid.CRID != "" {
+		targeting["hb_adid"] = bid.CRID
+		targeting["hb_adid_"+displayBidderCode] = bid.CRID
+	} else if bid.AdID != "" {
+		targeting["hb_adid"] = bid.AdID
+		targeting["hb_adid_"+displayBidderCode] = bid.AdID
+	}
+
+	ext := &openrtb.BidExt{
 		Prebid: &openrtb.ExtBidPrebid{
 			Type:      bidType,
 			Targeting: targeting,
@@ -2360,6 +2413,38 @@ func (e *Exchange) buildBidExtension(vb ValidatedBid) *openrtb.BidExt {
 			},
 		},
 	}
+
+	// Add cache info when available (required for GAM universal creative / VAST redirect)
+	if cacheResult != nil {
+		targeting["hb_uuid"] = cacheResult.UUID
+		targeting["hb_uuid_"+displayBidderCode] = cacheResult.UUID
+		targeting["hb_cache_id"] = cacheResult.UUID
+		targeting["hb_cache_id_"+displayBidderCode] = cacheResult.UUID
+		targeting["hb_cache_host"] = cacheResult.Host
+		targeting["hb_cache_host_"+displayBidderCode] = cacheResult.Host
+		targeting["hb_cache_path"] = cacheResult.Path
+		targeting["hb_cache_path_"+displayBidderCode] = cacheResult.Path
+
+		ext.Prebid.Cache = &openrtb.ExtBidPrebidCache{
+			Key: cacheResult.UUID,
+			URL: cacheResult.URL,
+		}
+
+		// Set VAST-specific cache info for video bids
+		if bidType == "video" {
+			ext.Prebid.Cache.VastXML = &openrtb.CacheInfo{
+				CacheID: cacheResult.UUID,
+				URL:     cacheResult.URL,
+			}
+		} else {
+			ext.Prebid.Cache.Bids = &openrtb.CacheInfo{
+				CacheID: cacheResult.UUID,
+				URL:     cacheResult.URL,
+			}
+		}
+	}
+
+	return ext
 }
 
 // formatPriceBucket formats price using medium granularity (per Prebid.js spec)
