@@ -315,7 +315,8 @@
             allowTargetingKeys: [
               'BIDDER', 'AD_ID', 'PRICE_BUCKET', 'SIZE',
               'DEAL', 'SOURCE', 'FORMAT', 'UUID',
-              'CACHE_ID', 'CACHE_HOST', 'CACHE_PATH'
+              'CACHE_ID', 'CACHE_HOST', 'CACHE_PATH',
+              'ADOMAIN'
             ]
           }
         });

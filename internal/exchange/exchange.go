@@ -2404,6 +2404,13 @@ func (e *Exchange) buildBidExtension(vb ValidatedBid, cacheResult *CacheResult) 
 		targeting["hb_adid_"+displayBidderCode] = bid.AdID
 	}
 
+	// Add advertiser domain (first entry from adomain array)
+	// Used for competitive separation and advertiser-level blocking/reporting in GAM
+	if len(bid.ADomain) > 0 && bid.ADomain[0] != "" {
+		targeting["hb_adomain"] = bid.ADomain[0]
+		targeting["hb_adomain_"+displayBidderCode] = bid.ADomain[0]
+	}
+
 	ext := &openrtb.BidExt{
 		Prebid: &openrtb.ExtBidPrebid{
 			Type:      bidType,
